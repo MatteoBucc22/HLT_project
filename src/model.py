@@ -6,4 +6,4 @@ def get_model():
         MODEL_NAME,
         num_labels=2
     )
-    return model
+    return model.to("cuda")  # Assicurati di spostarlo esplicitamente su CUDA
