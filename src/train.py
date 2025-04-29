@@ -1,0 +1,93 @@
+import torch
+from torch.utils.data import DataLoader
+from torch.optim import AdamW
+from transformers import default_data_collator
+from tqdm.auto import tqdm
+import time
+
+from peft import get_peft_config, get_peft_model, LoraConfig, TaskType
+
+from data_loader import get_datasets
+from model import get_model
+from config import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR
+
+def train():
+    # Carica dataset e modello
+    dataset = get_datasets()
+    base_model = get_model().to(DEVICE)
+
+    # CONFIGURA LORA
+    peft_config = LoraConfig(
+        task_type=TaskType.SEQ_CLS,
+        inference_mode=False,
+        r=8,
+        lora_alpha=32,
+        target_modules=["q_lin", "v_lin"],  
+    )
+    model = get_peft_model(base_model, peft_config)
+    model.print_trainable_parameters()  # per controllare quanti parametri si addestrano
+
+    # DataLoader
+    train_loader = DataLoader(
+        dataset["train"],
+        batch_size=BATCH_SIZE,
+        shuffle=True,
+        num_workers=4,
+        pin_memory=True,
+        collate_fn=default_data_collator
+    )
+    val_loader = DataLoader(
+        dataset["test"],
+        batch_size=BATCH_SIZE,
+        num_workers=4,
+        pin_memory=True,
+        collate_fn=default_data_collator
+    )
+
+    # Ottimizzatore (aggiorna SOLO parametri LoRA + classifier)
+    optimizer = AdamW(
+        filter(lambda p: p.requires_grad, model.parameters()),
+        lr=LEARNING_RATE
+    )
+
+    # Mixed precision MPS
+    use_amp = True
+    scaler = torch.amp.GradScaler() if use_amp else None
+
+    for epoch in range(EPOCHS):
+        start = time.time()
+        model.train()
+        total_loss = 0.0
+
+        loop = tqdm(train_loader, desc=f"Epoch {epoch+1}", unit="batch")
+        for batch_idx, batch in enumerate(loop):
+            batch = {k: v.to(DEVICE) for k, v in batch.items()}
+            optimizer.zero_grad()
+
+            if use_amp:
+                with torch.amp.autocast(device_type="mps"):
+                    outputs = model(**batch)
+                    loss = outputs.loss
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                outputs = model(**batch)
+                loss = outputs.loss
+                loss.backward()
+                optimizer.step()
+
+            if DEVICE.startswith("mps"):
+                torch.mps.empty_cache()
+
+            total_loss += loss.item()
+            loop.set_postfix(loss=total_loss/(batch_idx+1))
+
+        epoch_time = time.time() - start
+        print(f"\nEpoch {epoch+1} — Avg Loss: {total_loss/len(train_loader):.4f} — Time: {epoch_time:.1f}s\n")
+
+    # Salvataggio del solo LoRA adapter (non serve salvare tutto il modello di base)
+    model.save_pretrained(SAVE_DIR + "lora_adapter")
+
+if __name__ == "__main__":
+    train()
