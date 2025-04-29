@@ -50,7 +50,7 @@ def train():
         lr=LEARNING_RATE
     )
 
-    # Mixed precision MPS
+    # Mixed precision
     use_amp = True
     scaler = torch.amp.GradScaler() if use_amp else None
 
@@ -65,7 +65,7 @@ def train():
             optimizer.zero_grad()
 
             if use_amp:
-                with torch.amp.autocast(device_type="mps"):
+                with torch.amp.autocast():
                     outputs = model(**batch)
                     loss = outputs.loss
                 scaler.scale(loss).backward()
@@ -77,8 +77,6 @@ def train():
                 loss.backward()
                 optimizer.step()
 
-            if DEVICE.startswith("mps"):
-                torch.mps.empty_cache()
 
             total_loss += loss.item()
             loop.set_postfix(loss=total_loss/(batch_idx+1))
