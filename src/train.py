@@ -50,9 +50,9 @@ def train():
         lr=LEARNING_RATE
     )
 
-    # Mixed precision
+    # Mixed precision CUDA
     use_amp = True
-    scaler = torch.amp.GradScaler() if use_amp else None
+    scaler = torch.cuda.amp.GradScaler() if use_amp else None
 
     for epoch in range(EPOCHS):
         start = time.time()
@@ -65,7 +65,7 @@ def train():
             optimizer.zero_grad()
 
             if use_amp:
-                with torch.amp.autocast():
+                with torch.cuda.amp.autocast():
                     outputs = model(**batch)
                     loss = outputs.loss
                 scaler.scale(loss).backward()
@@ -76,7 +76,6 @@ def train():
                 loss = outputs.loss
                 loss.backward()
                 optimizer.step()
-
 
             total_loss += loss.item()
             loop.set_postfix(loss=total_loss/(batch_idx+1))
