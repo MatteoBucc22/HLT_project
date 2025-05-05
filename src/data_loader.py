@@ -4,10 +4,8 @@ from transformers import AutoTokenizer
 from config import MODEL_NAME, MAX_LENGTH
 
 def get_datasets():
-    # 1) Carica e fai lo split
     raw = load_dataset("quora")
     ds = raw["train"].train_test_split(test_size=0.2)
-    # rinominiamo 'test' per chiarezza
     ds["test"] = ds.pop("test")
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
@@ -34,7 +32,7 @@ def get_datasets():
     tokenized = ds.map(
         preprocess,
         batched=True,
-        remove_columns=ds["train"].column_names  # toglie 'questions' e la vecchia 'is_duplicate'
+        remove_columns=ds["train"].column_names 
     )
 
     return tokenized

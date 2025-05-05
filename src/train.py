@@ -24,7 +24,7 @@ def train():
         inference_mode=False,
         r=8,
         lora_alpha=32,
-        target_modules=["query", "value"]
+        target_modules=["q_lin", "v_lin"]
     )
     model = get_peft_model(base_model, peft_config)
     model.print_trainable_parameters()  # per controllare quanti parametri si addestrano

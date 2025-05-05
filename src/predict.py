@@ -1,15 +1,22 @@
 import torch
 from transformers import AutoTokenizer
 from model import get_model
+from peft import PeftModel
 from config import DEVICE, MODEL_NAME
 
 def predict(sentence1, sentence2):
+    # Carica tokenizer
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    model = get_model()
-    model.load_state_dict(torch.load("outputs/cross_encoder_qqp.pth"))
+
+    # Carica modello base
+    base_model = get_model()
+
+    # Applica LoRA adapter salvato
+    model = PeftModel.from_pretrained(base_model, "outputs/lora_adapter")
     model.to(DEVICE)
     model.eval()
 
+    # Tokenizza coppia di frasi
     inputs = tokenizer(
         sentence1,
         sentence2,
@@ -19,6 +26,7 @@ def predict(sentence1, sentence2):
         max_length=128
     ).to(DEVICE)
 
+    # Inference
     with torch.no_grad():
         outputs = model(**inputs)
         logits = outputs.logits
