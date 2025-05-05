@@ -1,4 +1,4 @@
-MODEL_NAME = "distilbert-base-uncased"
+MODEL_NAME = "roberta-base"
 MAX_LENGTH = 64
 BATCH_SIZE = 8
 LEARNING_RATE = 2e-5

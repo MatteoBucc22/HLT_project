@@ -4,6 +4,8 @@ from torch.optim import AdamW
 from transformers import default_data_collator
 from tqdm.auto import tqdm
 import time
+import os, datetime
+
 
 from peft import get_peft_config, get_peft_model, LoraConfig, TaskType
 
@@ -85,6 +87,17 @@ def train():
 
     # Salvataggio del solo LoRA adapter (non serve salvare tutto il modello di base)
     model.save_pretrained(SAVE_DIR + "lora_adapter")
+    
+    os.makedirs(SAVE_DIR, exist_ok=True)
+
+    # genera timestamp
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # salva il .pth con timestamp
+    pth_name = f"cross_encoder_qqp_{ts}.pth"
+    pth_path = os.path.join(SAVE_DIR, pth_name)
+    torch.save(model.state_dict(), pth_path)
+    print(f"✔️ Modello cross‑encoder salvato in: {pth_path}")
 
 if __name__ == "__main__":
     train()

@@ -1,5 +1,5 @@
 # src/eval.py
-import argparse
+import argparse, os
 import torch
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, default_data_collator
@@ -19,46 +19,41 @@ def evaluate(model, dataloader):
             preds = outputs.logits.argmax(dim=1)
             all_preds.extend(preds.cpu().tolist())
             all_labels.extend(batch["labels"].cpu().tolist())
-
-    acc = accuracy_score(all_labels, all_preds)
-    f1 = f1_score(all_labels, all_preds)
-    print(f"Validation Accuracy: {acc:.4f} | F1 Score: {f1:.4f}")
+    print(f"Validation Accuracy: {accuracy_score(all_labels, all_preds):.4f} | "
+          f"F1 Score: {f1_score(all_labels, all_preds):.4f}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Eval LoRA adapter")
-    parser.add_argument(
-        "--model_dir", type=str, required=True,
-        help="Cartella con adapter_model.safetensors e adapter_config.json"
-    )
-    parser.add_argument(
-        "--batch_size", type=int, default=BATCH_SIZE
-    )
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--checkpoint", type=str, required=True,
+                        help="Path al file .pth (cross‑encoder) o alla cartella LORA adapter")
+    parser.add_argument("--batch_size", type=int, default=BATCH_SIZE)
     args = parser.parse_args()
 
-    print(">>> Device:", DEVICE)
-    print(">>> Carico base model e adapter da", args.model_dir)
-    base_model = get_model()
-    model = PeftModel.from_pretrained(
-        base_model,
-        args.model_dir,
-        safe_serialization=True  # forza safetensors
-    )
-    model.to(DEVICE)
-    print(">>> Parametri addestrabili:", model.print_trainable_parameters())
-
-    print(">>> Carico dataset di test")
-    ds = get_datasets()
-    print(">>> Dimensione test set:", len(ds["test"]))
+    # Carica il tokenizer e il dataset
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-
+    ds = get_datasets()
     test_loader = DataLoader(
-        ds["test"],
-        batch_size=args.batch_size,
-        shuffle=False,
-        collate_fn=default_data_collator
+        ds["test"], batch_size=args.batch_size,
+        shuffle=False, collate_fn=default_data_collator
     )
+    print("✔️  Dataset test caricato:", len(ds["test"]), "esempi")
 
-    print("🔎 Starting evaluation on test set...")
+    # Decido se è un file .pth o una cartella
+    ckpt = args.checkpoint
+    base_model = get_model()
+    if os.path.isdir(ckpt):
+        # Modalità LoRA adapter
+        print("⚙️  Carico LoRA adapter da:", ckpt)
+        model = PeftModel.from_pretrained(base_model, ckpt, safe_serialization=True)
+    else:
+        # Modalità Cross‑Encoder .pth
+        print("⚙️  Carico Cross‑Encoder state_dict da:", ckpt)
+        model = base_model
+        state = torch.load(ckpt, map_location=DEVICE)
+        model.load_state_dict(state)
+
+    model.to(DEVICE)
+    print("✔️  Modello pronto, inizio evaluation…")
     evaluate(model, test_loader)
 
 if __name__ == "__main__":
