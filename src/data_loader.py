@@ -7,7 +7,7 @@ from config import MODEL_NAME, MAX_LENGTH
 
 def get_datasets():
     # Carica il dataset Quora con le suddivisioni predefinite
-    ds = load_dataset("glue", "quora")
+    ds = load_dataset("glue", "qqp")
     print("DATASET CARICATO:", ds.keys())
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
