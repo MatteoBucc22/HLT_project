@@ -1,3 +1,5 @@
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 from transformers import AutoModelForSequenceClassification
 from config import MODEL_NAME
 import torch

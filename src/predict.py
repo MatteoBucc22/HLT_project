@@ -1,3 +1,6 @@
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 import torch
 from transformers import AutoTokenizer
 from peft import PeftModel

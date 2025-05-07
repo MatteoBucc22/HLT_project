@@ -1,10 +1,12 @@
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import torch
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from transformers import default_data_collator
 from tqdm.auto import tqdm
 import time
-import os, datetime
+import datetime
 
 
 from peft import get_peft_config, get_peft_model, LoraConfig, TaskType
@@ -88,7 +90,16 @@ def train():
         epoch_time = time.time() - start
         print(f"\nEpoch {epoch+1} — Avg Loss: {total_loss/len(train_loader):.4f} — Time: {epoch_time:.1f}s\n")
 
-        # Salvataggio del solo LoRA adapter
+        if (epoch + 1) % 2 == 0:
+            adapter_dir = os.path.join(SAVE_DIR, f"lora_adapter_epoch{epoch+1}")
+            os.makedirs(adapter_dir, exist_ok=True)
+            model.save_pretrained(adapter_dir)
+            print(f"💾 LoRA salvato in: {adapter_dir}")
+
+            save_to_hf(adapter_dir, repo_id="MatteoBucc/passphrase-identification")
+            print("☁️  Salvato su Hugging Face")
+
+    # Salvataggio del solo LoRA adapter
     os.makedirs(SAVE_DIR, exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     adapter_dir = os.path.join(SAVE_DIR, f"lora_adapter_{ts}")

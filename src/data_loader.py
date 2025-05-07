@@ -1,3 +1,6 @@
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 from datasets import load_dataset
 from transformers import AutoTokenizer
 from config import MODEL_NAME, MAX_LENGTH

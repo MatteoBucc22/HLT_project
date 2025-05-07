@@ -1,5 +1,8 @@
 # src/eval.py
-import argparse, os
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+import argparse
 import torch
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, default_data_collator
