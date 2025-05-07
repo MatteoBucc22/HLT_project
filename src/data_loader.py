@@ -12,9 +12,8 @@ def get_datasets():
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
     def preprocess(examples):
-        # Usa direttamente le due colonne
-        q1 = examples["questions"]["text1"]
-        q2 = examples["questions"]["text2"]
+        q1 = [q["text1"] for q in examples["questions"]]
+        q2 = [q["text2"] for q in examples["questions"]]
 
         tok = tokenizer(
             q1,
@@ -25,6 +24,7 @@ def get_datasets():
         )
         tok["labels"] = [int(x) for x in examples["is_duplicate"]]
         return tok
+
 
 
     # Applica la tokenizzazione a tutte le suddivisioni
