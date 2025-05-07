@@ -13,7 +13,7 @@ from peft import get_peft_config, get_peft_model, LoraConfig, TaskType
 
 from data_loader import get_datasets
 from model import get_model, MODEL_NAME  # Importa anche MODEL_NAME
-from config import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR
+from config import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR, DATASET_NAME
 from hf_utils import save_to_hf
 
 
@@ -109,30 +109,30 @@ def train():
         print(f"🧪 Validation — Accuracy: {acc:.4f} | F1 Score: {f1:.4f}\n")
 
         if (epoch + 1) % 2 == 0:
-            adapter_dir_epoch = os.path.join(SAVE_DIR, f"{MODEL_NAME}_epoch_{epoch+1}")
+            adapter_dir_epoch = os.path.join(SAVE_DIR, f"{MODEL_NAME}-{DATASET_NAME}_epoch_{epoch+1}")
             os.makedirs(adapter_dir_epoch, exist_ok=True)
             model.save_pretrained(adapter_dir_epoch)
             print(f"✔️  LoRA adapter (epoch {epoch+1}) salvato in: {adapter_dir_epoch}")
-            save_to_hf(adapter_dir_epoch, repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME}-epoch-{epoch+1}")
+            save_to_hf(adapter_dir_epoch, repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME}-{DATASET_NAME}-epoch-{epoch+1}")
 
 
     # Salvataggio del solo LoRA adapter finale
     os.makedirs(SAVE_DIR, exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    adapter_dir_final = os.path.join(SAVE_DIR, f"{MODEL_NAME}_lora_adapter_{ts}")
+    adapter_dir_final = os.path.join(SAVE_DIR, f"{MODEL_NAME}-{DATASET_NAME}_lora_adapter_{ts}")
     os.makedirs(adapter_dir_final, exist_ok=True)
 
     model.save_pretrained(adapter_dir_final)
     print(f"✔️  LoRA adapter finale salvato in: {adapter_dir_final}")
 
     # Salvataggio opzionale anche del modello intero come .pth
-    pth_name = f"{MODEL_NAME}_cross_encoder_qqp_{ts}.pth"
+    pth_name = f"{MODEL_NAME}-{DATASET_NAME}_cross_encoder_qqp_{ts}.pth"
     pth_path = os.path.join(SAVE_DIR, pth_name)
     torch.save(model.state_dict(), pth_path)
     print(f"✔️ Modello cross‑encoder salvato in: {pth_path}")
 
     # Upload su Hugging Face Hub dell'adapter finale
-    save_to_hf(adapter_dir_final, repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME}-final")
+    save_to_hf(adapter_dir_final, repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME}-{DATASET_NAME}-final")
 
 
 if __name__ == "__main__":

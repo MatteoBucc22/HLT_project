@@ -3,11 +3,11 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 from datasets import load_dataset
 from transformers import AutoTokenizer
-from config import MODEL_NAME, MAX_LENGTH
+from config import MODEL_NAME, MAX_LENGTH, DATASET_NAME
 
 def get_datasets():
     # Carica il dataset Quora con le suddivisioni predefinite
-    ds = load_dataset("glue", "qqp")
+    ds = load_dataset("glue", DATASET_NAME)
     print("DATASET CARICATO:", ds.keys())
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
@@ -27,7 +27,7 @@ def get_datasets():
         return tok
 
     # Applica la tokenizzazione a tutte le suddivisioni
-    tokenized = ds.map(preprocess, batched=True, remove_columns=["idx", "question1", "question2", "label"])
+    tokenized = ds.map(preprocess, batched=True, remove_columns=["idx", "question1", "question2"])
     tokenized.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
     return tokenized
 

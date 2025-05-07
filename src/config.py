@@ -1,4 +1,5 @@
 MODEL_NAME = "roberta-base"
+DATASET_NAME = "qqp"
 MAX_LENGTH = 64
 BATCH_SIZE = 32
 LEARNING_RATE = 3e-5
