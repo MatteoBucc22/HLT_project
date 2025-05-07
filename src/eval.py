@@ -13,12 +13,18 @@ from config import DEVICE, BATCH_SIZE, MODEL_NAME
 from sklearn.metrics import accuracy_score, f1_score
 
 def evaluate(model, dataloader):
+
     model.eval()
     all_preds, all_labels = [], []
     with torch.no_grad():
         for batch in dataloader:
             batch = {k: v.to(DEVICE) for k, v in batch.items()}
             outputs = model(**batch)
+
+            print("Logistic shape:", outputs.logits.shape)
+            print("Labels dtype:", batch["labels"].dtype)
+            print("Unique labels:", torch.unique(batch["labels"]))
+            
             preds = outputs.logits.argmax(dim=1)
             all_preds.extend(preds.cpu().tolist())
             all_labels.extend(batch["labels"].cpu().tolist())
