@@ -12,8 +12,9 @@ def get_datasets():
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
     def preprocess(examples):
-        q1 = [q["text"][0] for q in examples["questions"]]
-        q2 = [q["text"][1] for q in examples["questions"]]
+        # Access question texts directly from "question1" and "question2"
+        q1 = examples["question1"]
+        q2 = examples["question2"]
 
         tok = tokenizer(
             q1,
@@ -22,13 +23,13 @@ def get_datasets():
             truncation=True,
             max_length=MAX_LENGTH,
         )
-        tok["labels"] = [int(x) for x in examples["is_duplicate"]]
+        tok["labels"] = examples["label"]  # Use "label" for is_duplicate
         return tok
-
-
 
     # Applica la tokenizzazione a tutte le suddivisioni
     tokenized = ds.map(preprocess, batched=True)
-
     return tokenized
 
+if __name__ == '__main__':
+    dataset = get_datasets()
+    print(dataset)
