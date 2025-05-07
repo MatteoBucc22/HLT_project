@@ -12,8 +12,8 @@ def get_datasets():
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
     def preprocess(examples):
-        q1 = [q["text1"] for q in examples["questions"]]
-        q2 = [q["text2"] for q in examples["questions"]]
+        q1 = [q["text"][0] for q in examples["questions"]]
+        q2 = [q["text"][1] for q in examples["questions"]]
 
         tok = tokenizer(
             q1,
