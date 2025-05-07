@@ -2,3 +2,4 @@ torch
 transformers
 datasets
 scikit-learn
+huggingface_hub

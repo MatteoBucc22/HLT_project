@@ -12,6 +12,8 @@ from peft import get_peft_config, get_peft_model, LoraConfig, TaskType
 from data_loader import get_datasets
 from model import get_model
 from config import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR
+from hf_utils import save_to_hf
+
 
 def train():
     # Carica dataset e modello
@@ -24,8 +26,9 @@ def train():
         inference_mode=False,
         r=8,
         lora_alpha=32,
-        target_modules=["q_lin", "v_lin"]
+        target_modules=["query", "value"]
     )
+
     model = get_peft_model(base_model, peft_config)
     model.print_trainable_parameters()  # per controllare quanti parametri si addestrano
 
@@ -85,20 +88,26 @@ def train():
         epoch_time = time.time() - start
         print(f"\nEpoch {epoch+1} — Avg Loss: {total_loss/len(train_loader):.4f} — Time: {epoch_time:.1f}s\n")
 
-    # Salvataggio del solo LoRA adapter (non serve salvare tutto il modello di base)
+        # Salvataggio del solo LoRA adapter
     os.makedirs(SAVE_DIR, exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     adapter_dir = os.path.join(SAVE_DIR, f"lora_adapter_{ts}")
     os.makedirs(adapter_dir, exist_ok=True)
 
-    # salva l’adapter LoRA in un folder univoco
     model.save_pretrained(adapter_dir)
     print(f"✔️  LoRA adapter salvato in: {adapter_dir}")
 
+    # Salvataggio opzionale anche del modello intero come .pth
     pth_name = f"cross_encoder_qqp_{ts}.pth"
     pth_path = os.path.join(SAVE_DIR, pth_name)
     torch.save(model.state_dict(), pth_path)
     print(f"✔️ Modello cross‑encoder salvato in: {pth_path}")
+
+    # Upload su Hugging Face Hub
+    save_to_hf(adapter_dir, repo_id="MatteoBucc/passphrase-identification")
+
+
+
 
 if __name__ == "__main__":
     train()
