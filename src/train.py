@@ -44,7 +44,7 @@ def train():
         collate_fn=default_data_collator
     )
     val_loader = DataLoader(
-        dataset["test"],
+        dataset["validation"],
         batch_size=BATCH_SIZE,
         num_workers=4,
         pin_memory=True,
@@ -60,6 +60,8 @@ def train():
     # Mixed precision CUDA
     use_amp = True
     scaler = torch.cuda.amp.GradScaler() if use_amp else None
+
+    from sklearn.metrics import accuracy_score, f1_score  # <-- aggiungi all'inizio del file se non già presente
 
     for epoch in range(EPOCHS):
         start = time.time()
@@ -85,19 +87,30 @@ def train():
                 optimizer.step()
 
             total_loss += loss.item()
-            loop.set_postfix(loss=total_loss/(batch_idx+1))
+            loop.set_postfix(loss=total_loss / (batch_idx + 1))
 
         epoch_time = time.time() - start
-        print(f"\nEpoch {epoch+1} — Avg Loss: {total_loss/len(train_loader):.4f} — Time: {epoch_time:.1f}s\n")
+        avg_loss = total_loss / len(train_loader)
+        print(f"\nEpoch {epoch+1} — Avg Train Loss: {avg_loss:.4f} — Time: {epoch_time:.1f}s")
+
+        # 🔍 VALIDATION
+        model.eval()
+        all_preds, all_labels = [], []
+        with torch.no_grad():
+            for batch in val_loader:
+                batch = {k: v.to(DEVICE) for k, v in batch.items()}
+                outputs = model(**batch)
+                preds = outputs.logits.argmax(dim=1)
+                all_preds.extend(preds.cpu().tolist())
+                all_labels.extend(batch["labels"].cpu().tolist())
+
+        acc = accuracy_score(all_labels, all_preds)
+        f1 = f1_score(all_labels, all_preds)
+        print(f"🧪 Validation — Accuracy: {acc:.4f} | F1 Score: {f1:.4f}\n")
 
         if (epoch + 1) % 2 == 0:
-            adapter_dir = os.path.join(SAVE_DIR, f"lora_adapter_epoch{epoch+1}")
-            os.makedirs(adapter_dir, exist_ok=True)
-            model.save_pretrained(adapter_dir)
-            print(f"💾 LoRA salvato in: {adapter_dir}")
+            save_to_hf(model, adapter_dir=f"epoch_{epoch+1}")
 
-            save_to_hf(adapter_dir, repo_id="MatteoBucc/passphrase-identification")
-            print("☁️  Salvato su Hugging Face")
 
     # Salvataggio del solo LoRA adapter
     os.makedirs(SAVE_DIR, exist_ok=True)
