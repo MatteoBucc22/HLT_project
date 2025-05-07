@@ -27,7 +27,8 @@ def get_datasets():
         return tok
 
     # Applica la tokenizzazione a tutte le suddivisioni
-    tokenized = ds.map(preprocess, batched=True)
+    tokenized = ds.map(preprocess, batched=True, remove_columns=["idx", "question1", "question2", "label"])
+    tokenized.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
     return tokenized
 
 if __name__ == '__main__':
