@@ -23,13 +23,24 @@ def train():
     base_model = get_model().to(DEVICE)
 
     # CONFIGURA LORA
-    peft_config = LoraConfig(
-        task_type=TaskType.SEQ_CLS,
-        inference_mode=False,
-        r=8,
+
+    from peft import AutoLoraConfig, get_peft_model, TaskType, PeftType
+
+    peft_config = AutoLoraConfig(
+        model=base_model,                # necessario per ispezionare i moduli
+        peft_type=PeftType.LORA,         # rimane LoRA, ma “auto”
+        task_type=TaskType.SEQ_CLS,      # sequence classification
+        inference_mode=False,            # training mode
+        init_r=8,                        # rank iniziale
+        max_r=32,                        # rank massimo consentito
         lora_alpha=32,
+        lora_dropout=0.1,
+        growth_factor=2.0,               # di quanto può crescere r ad ogni update
+        threshold=0.01,                  # soglia di “importanza” per aggiungere rank
+        update_every=100,                # ogni quante iterazioni valutare l’adattamento
         target_modules=["query", "value"]
     )
+
 
     model = get_peft_model(base_model, peft_config)
     model.print_trainable_parameters()  # per controllare quanti parametri si addestrano
