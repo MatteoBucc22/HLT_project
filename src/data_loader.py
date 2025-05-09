@@ -9,7 +9,7 @@ from sklearn.model_selection import train_test_split
 
 
 def get_datasets(
-    txt_path: str = "/kaggle/working/HLT_project/src/SimilEx_dataset.txt",
+    txt_path: str = "/kaggle/working/HLT_project/src/PACCSS-IT.txt",
     cos_thresh: float = 0.8,
     conf_thresh: float = 0.75
 ) -> DatasetDict:
