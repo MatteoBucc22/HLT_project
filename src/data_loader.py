@@ -9,9 +9,9 @@ from sklearn.model_selection import train_test_split
 
 
 def get_datasets(
-    txt_path: str = "/kaggle/working/HLT_project/src/PACCSS-IT.txt",
-    t0: float = 0.8,
-    beta: float = 0.1
+    txt_path: str = "/kaggle/working/HLT_project/src/SimilEx_dataset.txt",
+    cos_thresh: float = 0.8,
+    conf_thresh: float = 0.75
 ) -> DatasetDict:
     """
     Carica un file .txt tab-delimitato con colonne:
@@ -19,13 +19,9 @@ def get_datasets(
       - Sentence_2
       - Cosine_Similarity
       - Confidence
-      - Readability_1
-      - Readability_2
-      - (Readability_1-Readability_2)
     e restituisce un DatasetDict con split train/validation/test (70/10/20)
-    usando come label binaria con soglia adattiva:
-      threshold = t0 + beta * (1 - confidence)
-    e label = cosine_similarity > threshold.
+    usando come label binaria con tecnica AND:
+      label = (cosine_similarity > cos_thresh) AND (confidence > conf_thresh)
     """
     # 1) Carica il dataset (salta righe malformate)
     df = pd.read_csv(
@@ -36,12 +32,12 @@ def get_datasets(
         usecols=["Sentence_1", "Sentence_2", "Cosine_Similarity", "Confidence"]
     )
 
-    # 2) Converto in numerico
+    # 2) Converto in numerico e scarto righe malformate
     df["Cosine_Similarity"] = pd.to_numeric(df["Cosine_Similarity"], errors="coerce")
     df["Confidence"]       = pd.to_numeric(df["Confidence"], errors="coerce")
     df = df.dropna(subset=["Cosine_Similarity", "Confidence"]).reset_index(drop=True)
 
-    # 3) Rinomino
+    # 3) Rinomino colonne per compatibilità
     df = df.rename(
         columns={
             "Sentence_1": "question1",
@@ -51,14 +47,16 @@ def get_datasets(
         }
     )
 
-    # 4) Soglia adattiva e binarizzazione
-    df["threshold"] = t0 + beta * (1 - df["confidence"])
-    df["label"]     = (df["cosine_similarity"] > df["threshold"]).astype(int)
+    # 4) Binarizzazione con tecnica AND
+    df["label"] = (
+        (df["cosine_similarity"] > cos_thresh) &
+        (df["confidence"]       > conf_thresh)
+    ).astype(int)
 
-    # 5) Preparo le colonne
+    # 5) Seleziono solo colonne utili
     df = df[["question1", "question2", "label"]]
 
-    # 6) Split 70/10/20 stratificato
+    # 6) Split stratificato 70/10/20
     df_train, df_temp = train_test_split(
         df, test_size=0.30, random_state=42, stratify=df["label"]
     )
@@ -66,7 +64,7 @@ def get_datasets(
         df_temp, test_size=2/3, random_state=42, stratify=df_temp["label"]
     )
 
-    # 7) Costruzione DatasetDict
+    # 7) Crea DatasetDict Hugging Face
     ds = DatasetDict({
         "train": Dataset.from_pandas(df_train.reset_index(drop=True)),
         "validation": Dataset.from_pandas(df_val.reset_index(drop=True)),
@@ -97,6 +95,8 @@ def get_datasets(
     )
     tokenized.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
 
+    # 10) Debug: class distribution
+    print("VALORI UNICI DELLE ETICHETTE:", tokenized["train"].unique("labels"))
     return tokenized
 
 
