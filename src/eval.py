@@ -65,14 +65,20 @@ def main():
     base_model = get_model()
 
     if os.path.isdir(ckpt):
-        # Directory: could be LoRA adapter or full HF model
+        # Directory: decide se è LoRA adapter (contiene adapter_config.json) oppure modello completo
         files = set(os.listdir(ckpt))
-        if "adapter_config.json" in files or any(f.endswith(".safetensors") for f in files):
+        if "adapter_config.json" in files:
             print(f"⚙️  Loading LoRA adapter from {ckpt}")
             model = PeftModel.from_pretrained(
                 base_model, ckpt, safe_serialization=True
             )
         else:
+            print(f"⚙️  Loading full model from local folder {ckpt}")
+            model = AutoModelForSequenceClassification.from_pretrained(
+                ckpt, local_files_only=True
+            )
+    elif ckpt.endswith(".pth"):
+
             print(f"⚙️  Loading full model from local folder {ckpt}")
             model = AutoModelForSequenceClassification.from_pretrained(
                 ckpt, local_files_only=True
