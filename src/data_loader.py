@@ -8,7 +8,7 @@ from config import MODEL_NAME, MAX_LENGTH
 
 def get_datasets():
     # Carica il CSV
-    df = pd.read_csv("SimilEx_dataset.csv")
+    df = pd.read_csv("../SimilEx_dataset.csv")
 
     # Tieni solo le colonne di interesse e rimuovi righe senza etichetta
     df = df[["Sentence_1", "Sentence_2", "Stud_2"]].dropna(subset=["Stud_2"])
