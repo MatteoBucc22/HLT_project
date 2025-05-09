@@ -18,10 +18,14 @@ from hf_utils import save_to_hf
 
 
 def train():
+    # Pulizia del nome per il repo HF
     model_name_clean = MODEL_NAME.replace("/", "-")
+
+    # Carica dataset e modello base
     dataset = get_datasets()
     model = get_model().to(DEVICE)
 
+    # DataLoaders
     train_loader = DataLoader(
         dataset["train"],
         batch_size=BATCH_SIZE,
@@ -38,16 +42,20 @@ def train():
         collate_fn=default_data_collator
     )
 
+    # Ottimizzatore
     optimizer = AdamW(
         model.parameters(),
         lr=LEARNING_RATE
     )
 
+    # Mixed precision
     use_amp = True
     scaler = torch.cuda.amp.GradScaler() if use_amp else None
 
+    # Metriche da tracciare
     losses, accuracies, f1_scores = [], [], []
 
+    # Ciclo di training
     for epoch in range(EPOCHS):
         start = time.time()
         model.train()
@@ -79,6 +87,7 @@ def train():
         losses.append(avg_loss)
         print(f"\nEpoch {epoch+1} — Avg Train Loss: {avg_loss:.4f} — Time: {epoch_time:.1f}s")
 
+        # Validation
         model.eval()
         all_preds, all_labels = [], []
         with torch.no_grad():
@@ -95,54 +104,55 @@ def train():
         f1_scores.append(f1)
         print(f"🧪 Validation — Accuracy: {acc:.4f} | F1 Score: {f1:.4f}\n")
 
+        # Salvataggio checkpoint ogni 2 epoche
         if (epoch + 1) % 2 == 0:
-            model_dir_epoch = os.path.join(SAVE_DIR, f"{model_name_clean}-{DATASET_NAME}_epoch_{epoch+1}")
-            os.makedirs(model_dir_epoch, exist_ok=True)
-            model.save_pretrained(model_dir_epoch)
-            print(f"✔️  Modello (epoch {epoch+1}) salvato in: {model_dir_epoch}")
-            save_to_hf(model_dir_epoch, repo_id=f"MatteoBucc/passphrase-identification-{model_name_clean}-{DATASET_NAME}-epoch-{epoch+1}")
+            ckpt_dir = os.path.join(SAVE_DIR, f"{model_name_clean}-{DATASET_NAME}_epoch_{epoch+1}")
+            os.makedirs(ckpt_dir, exist_ok=True)
+            model.save_pretrained(ckpt_dir)
+            print(f"✔️ Modello (epoch {epoch+1}) salvato in: {ckpt_dir}")
+            save_to_hf(
+                ckpt_dir,
+                repo_id=f"MatteoBucc/passphrase-identification-{model_name_clean}-{DATASET_NAME}-epoch-{epoch+1}"
+            )
 
+    # Directory finale
     os.makedirs(SAVE_DIR, exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    model_dir_final = os.path.join(SAVE_DIR, f"{model_name_clean}-{DATASET_NAME}_finetuned_{ts}")
-    os.makedirs(model_dir_final, exist_ok=True)
+    final_dir = os.path.join(SAVE_DIR, f"{model_name_clean}-{DATASET_NAME}_finetuned_{ts}")
+    os.makedirs(final_dir, exist_ok=True)
 
-    model.save_pretrained(model_dir_final)
-    print(f"✔️  Modello fine-tuned finale salvato in: {model_dir_final}")
+    # Salvataggio del modello intero
+    model.save_pretrained(final_dir)
+    print(f"✔️ Modello fine-tuned salvato in: {final_dir}")
 
-    pth_name = f"{model_name_clean}-{DATASET_NAME}_cross_encoder_fullfinetune_{ts}.pth"
-    pth_path = os.path.join(SAVE_DIR, pth_name)
-    torch.save(model.state_dict(), pth_path)
-    print(f"✔️ Modello salvato come stato PyTorch in: {pth_path}")
+    # Upload full model su HF
+    save_to_hf(
+        final_dir,
+        repo_id=f"MatteoBucc/passphrase-identification-{model_name_clean}-{DATASET_NAME}-final"
+    )
 
-    save_to_hf(model_dir_final, repo_id=f"MatteoBucc/passphrase-identification-{model_name_clean}-{DATASET_NAME}-final")
-
-    # 🎨 Plot dei grafici
+    # Plottaggio metriche
     epochs_range = range(1, EPOCHS + 1)
-
     plt.figure(figsize=(12, 5))
 
-    # Loss
     plt.subplot(1, 2, 1)
-    plt.plot(epochs_range, losses, label="Train Loss", color="blue", marker="o")
+    plt.plot(epochs_range, losses, marker="o")
+    plt.title("Training Loss")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
-    plt.title("Training Loss")
     plt.grid(True)
-    plt.legend()
 
-    # Accuracy + F1
     plt.subplot(1, 2, 2)
-    plt.plot(epochs_range, accuracies, label="Val Accuracy", color="green", marker="o")
-    plt.plot(epochs_range, f1_scores, label="Val F1 Score", color="orange", marker="x")
+    plt.plot(epochs_range, accuracies, marker="o", label="Acc")
+    plt.plot(epochs_range, f1_scores, marker="x", label="F1")
+    plt.title("Validation Metrics")
     plt.xlabel("Epoch")
     plt.ylabel("Score")
-    plt.title("Validation Accuracy / F1")
-    plt.grid(True)
     plt.legend()
+    plt.grid(True)
 
     plt.tight_layout()
-    plot_path = os.path.join(SAVE_DIR, f"{model_name_clean}-{DATASET_NAME}_metrics_plot.png")
+    plot_path = os.path.join(SAVE_DIR, f"{model_name_clean}-{DATASET_NAME}_metrics.png")
     plt.savefig(plot_path)
     print(f"📊 Grafici salvati in {plot_path}")
 
