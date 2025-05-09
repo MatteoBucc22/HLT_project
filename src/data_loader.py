@@ -97,8 +97,6 @@ def get_datasets(
     )
     tokenized.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
 
-    # 10) Debug
-    print("VALORI UNICI DELLE ETICHETTE:", tokenized["train"].unique("labels"))
     return tokenized
 
 

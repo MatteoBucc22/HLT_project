@@ -6,22 +6,21 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from config import DEVICE, MODEL_NAME
 import argparse
 
-def predict(sentence1: str, sentence2: str, model_path: str):
+def predict(sentence1: str, sentence2: str, model_path: str, threshold: float):
     # 1) tokenizer: sempre dal modello base
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
     # 2) modello: dal checkpoint salvato in model_path
     if os.path.isdir(model_path):
-        # Carica config.json + safetensors (o pytorch_model.bin)
-        model = AutoModelForSequenceClassification.from_pretrained(model_path, local_files_only=True)
+        model = AutoModelForSequenceClassification.from_pretrained(
+            model_path, local_files_only=True
+        )
     elif model_path.endswith(".pth"):
-        # File .pth: usa la tua architettura e carica lo state dict
         from model import get_model
         model = get_model()
         state = torch.load(model_path, map_location=DEVICE)
         model.load_state_dict(state)
     else:
-        # Nome Hugging Face Hub
         model = AutoModelForSequenceClassification.from_pretrained(model_path)
 
     model.to(DEVICE)
@@ -40,7 +39,8 @@ def predict(sentence1: str, sentence2: str, model_path: str):
     with torch.no_grad():
         outputs = model(**inputs)
         probs = torch.softmax(outputs.logits, dim=1)[0]
-        pred = int(probs[1] > probs[0])
+        # uso la soglia passata invece di confronto 0.5 implicito
+        pred = int(probs[1] >= threshold)
         conf = probs[pred].item()
 
     return pred, conf
@@ -53,16 +53,27 @@ def main():
         "--model_path",
         type=str,
         required=True,
-        help="Path alla cartella di checkpoint (config.json + safetensors) o file .pth, o nome HF Hub"
+        help="Path alla cartella di checkpoint, file .pth, o nome HF Hub"
+    )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.5,
+        help="Soglia per la probabilità di classe 1 (default 0.5)"
     )
     args = parser.parse_args()
 
-    pred, conf = predict(args.sentence1, args.sentence2, args.model_path)
+    pred, conf = predict(
+        args.sentence1,
+        args.sentence2,
+        args.model_path,
+        threshold=args.threshold
+    )
     pred_str = "PARAFRASI" if pred else "NON‑PARAFRASI"
 
     print(f"› Frase A: {args.sentence1!r}")
     print(f"› Frase B: {args.sentence2!r}\n")
-    print(f"=> Model prediction: {pred_str} (conf {conf:.2%})")
+    print(f"=> Model prediction: {pred_str} (conf {conf:.2%}, threshold={args.threshold})")
 
 if __name__ == "__main__":
     main()
