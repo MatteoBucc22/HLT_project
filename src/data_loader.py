@@ -9,9 +9,9 @@ from sklearn.model_selection import train_test_split
 
 
 def get_datasets(
-    txt_path: str = "/kaggle/working/HLT_project/src/PACCSS-IT.txt",
+    txt_path: str = "/kaggle/working/HLT_project/src/SimilEx_dataset.txt",
     cos_thresh: float = 0.8,
-    conf_thresh: float = 0.9
+    conf_thresh: float = 0.75
 ) -> DatasetDict:
     """
     Carica un file .txt tab-delimitato con colonne:
@@ -47,7 +47,19 @@ def get_datasets(
         }
     )
 
+    # Stampa numero esempi originali (dopo dropna)
+    original_count = len(df)
+    print(f"Numero esempi originali: {original_count}")
+
     # 4) Binarizzazione con tecnica AND
+    df["label"] = (
+        (df["cosine_similarity"] > cos_thresh) &
+        (df["confidence"]       > conf_thresh)
+    ).astype(int)
+
+    # Stampa quanti esempi etichettati come paraphrase
+    pos_count = int(df["label"].sum())
+    print(f"Numero esempi con label=1 (parafrasi): {pos_count}")
     df["label"] = (
         (df["cosine_similarity"] > cos_thresh) &
         (df["confidence"]       > conf_thresh)
@@ -74,6 +86,9 @@ def get_datasets(
     # 8) Shuffle
     ds = ds.shuffle(seed=42)
     print("DATASET CARICATO E MISCELATO:", ds.keys())
+
+    # Stampare il numero di esempi per split
+    print(f"Numero esempi - train: {len(ds['train'])}, validation: {len(ds['validation'])}, test: {len(ds['test'])}")
 
     # 9) Tokenizzazione
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
