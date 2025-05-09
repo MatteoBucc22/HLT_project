@@ -43,7 +43,7 @@ def get_datasets():
         return tok
 
     # Tokenizzazione
-    tokenized = ds.map(preprocess, batched=True, remove_columns=["question1", "question2", "__index_level_0__"])
+    tokenized = ds.map(preprocess, batched=True, remove_columns=["question1", "question2"])
     tokenized.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
     print("VALORI UNICI DELLE ETICHETTE:", set(df["label"]))
     return tokenized
