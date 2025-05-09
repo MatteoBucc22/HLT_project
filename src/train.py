@@ -8,38 +8,36 @@ from tqdm.auto import tqdm
 import time
 import datetime
 
-from peft import get_peft_config, get_peft_model, TaskType, PeftType
+
+from peft import get_peft_config, get_peft_model, LoraConfig, TaskType
 
 from data_loader import get_datasets
-from model import get_model, MODEL_NAME
+from model import get_model, MODEL_NAME  # Importa anche MODEL_NAME
 from config import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR, DATASET_NAME
 from hf_utils import save_to_hf
 
+
 def train():
-    # Carica dataset e modello base
+    # Carica dataset e modello
     dataset = get_datasets()
     base_model = get_model().to(DEVICE)
 
-    # CONFIGURA AutoLoRA via get_peft_config
-    peft_config = get_peft_config(
-        peft_type=PeftType.LORA,       # tipo di adapter
-        task_type=TaskType.SEQ_CLS,    # sequence classification
-        inference_mode=False,          # training mode
-        init_r=8,                      # rank iniziale
-        max_r=32,                      # rank massimo consentito
+    # CONFIGURA LORA
+    from peft import LoraConfig, get_peft_model, TaskType
+
+    peft_config = LoraConfig(
+        task_type=TaskType.SEQ_CLS,
+        inference_mode=False,
+        r=8,
         lora_alpha=32,
         lora_dropout=0.1,
-        growth_factor=2.0,             # fattore di crescita del rank
-        threshold=0.01,                # soglia di “importanza” per aumentare r
-        update_every=100,              # ogni quanti step r viene adattato
         target_modules=["query", "value"]
     )
 
-    # Applica il configuration AutoLoRA al modello
     model = get_peft_model(base_model, peft_config)
-    model.print_trainable_parameters()
+    model.print_trainable_parameters()  # per controllare quanti parametri si addestrano
 
-    # Prepara i DataLoader
+    # DataLoader
     train_loader = DataLoader(
         dataset["train"],
         batch_size=BATCH_SIZE,
@@ -56,17 +54,17 @@ def train():
         collate_fn=default_data_collator
     )
 
-    # Optimizer: solo parametri LoRA + classifier
+    # Ottimizzatore (aggiorna SOLO parametri LoRA + classifier)
     optimizer = AdamW(
         filter(lambda p: p.requires_grad, model.parameters()),
         lr=LEARNING_RATE
     )
 
-    # Mixed precision
+    # Mixed precision CUDA
     use_amp = True
     scaler = torch.cuda.amp.GradScaler() if use_amp else None
 
-    from sklearn.metrics import accuracy_score, f1_score
+    from sklearn.metrics import accuracy_score, f1_score  # <-- aggiungi all'inizio del file se non già presente
 
     for epoch in range(EPOCHS):
         start = time.time()
@@ -98,7 +96,7 @@ def train():
         avg_loss = total_loss / len(train_loader)
         print(f"\nEpoch {epoch+1} — Avg Train Loss: {avg_loss:.4f} — Time: {epoch_time:.1f}s")
 
-        # VALIDATION
+        # 🔍 VALIDATION
         model.eval()
         all_preds, all_labels = [], []
         with torch.no_grad():
@@ -117,24 +115,28 @@ def train():
             adapter_dir_epoch = os.path.join(SAVE_DIR, f"{MODEL_NAME}-{DATASET_NAME}_epoch_{epoch+1}")
             os.makedirs(adapter_dir_epoch, exist_ok=True)
             model.save_pretrained(adapter_dir_epoch)
-            save_to_hf(adapter_dir_epoch,
-                       repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME}-{DATASET_NAME}-epoch-{epoch+1}")
+            print(f"✔️  LoRA adapter (epoch {epoch+1}) salvato in: {adapter_dir_epoch}")
+            save_to_hf(adapter_dir_epoch, repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME}-{DATASET_NAME}-epoch-{epoch+1}")
 
-    # Salvataggio finale dell’adapter LoRA
+
+    # Salvataggio del solo LoRA adapter finale
     os.makedirs(SAVE_DIR, exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     adapter_dir_final = os.path.join(SAVE_DIR, f"{MODEL_NAME}-{DATASET_NAME}_lora_adapter_{ts}")
+    os.makedirs(adapter_dir_final, exist_ok=True)
+
     model.save_pretrained(adapter_dir_final)
     print(f"✔️  LoRA adapter finale salvato in: {adapter_dir_final}")
 
-    # (Opzionale) salva anche lo state_dict completo
-    pth_path = os.path.join(SAVE_DIR, f"{MODEL_NAME}-{DATASET_NAME}_cross_encoder_{ts}.pth")
+    # Salvataggio opzionale anche del modello intero come .pth
+    pth_name = f"{MODEL_NAME}-{DATASET_NAME}_cross_encoder_qqp_{ts}.pth"
+    pth_path = os.path.join(SAVE_DIR, pth_name)
     torch.save(model.state_dict(), pth_path)
     print(f"✔️ Modello cross‑encoder salvato in: {pth_path}")
 
-    # Upload su Hugging Face Hub
-    save_to_hf(adapter_dir_final,
-               repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME}-{DATASET_NAME}-final")
+    # Upload su Hugging Face Hub dell'adapter finale
+    save_to_hf(adapter_dir_final, repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME}-{DATASET_NAME}-final")
+
 
 if __name__ == "__main__":
     train()
