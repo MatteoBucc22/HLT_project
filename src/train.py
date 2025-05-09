@@ -22,7 +22,6 @@ def train():
 
     # CONFIGURA AutoLoRA via get_peft_config
     peft_config = get_peft_config(
-        model=base_model,
         peft_type=PeftType.LORA,       # tipo di adapter
         task_type=TaskType.SEQ_CLS,    # sequence classification
         inference_mode=False,          # training mode
