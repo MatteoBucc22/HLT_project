@@ -8,44 +8,39 @@ from tqdm.auto import tqdm
 import time
 import datetime
 
-
-from peft import get_peft_config, get_peft_model, LoraConfig, TaskType
+from peft import get_peft_config, get_peft_model, TaskType, PeftType
 
 from data_loader import get_datasets
-from model import get_model, MODEL_NAME  # Importa anche MODEL_NAME
+from model import get_model, MODEL_NAME
 from config import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR, DATASET_NAME
 from hf_utils import save_to_hf
 
-
 def train():
-    # Carica dataset e modello
+    # Carica dataset e modello base
     dataset = get_datasets()
     base_model = get_model().to(DEVICE)
 
-    # CONFIGURA LORA
-
-    from peft import AutoLoraConfig, get_peft_model, TaskType, PeftType
-
-    peft_config = AutoLoraConfig(
-        model=base_model,                # necessario per ispezionare i moduli
-        peft_type=PeftType.LORA,         # rimane LoRA, ma “auto”
-        task_type=TaskType.SEQ_CLS,      # sequence classification
-        inference_mode=False,            # training mode
-        init_r=8,                        # rank iniziale
-        max_r=32,                        # rank massimo consentito
+    # CONFIGURA AutoLoRA via get_peft_config
+    peft_config = get_peft_config(
+        model=base_model,
+        peft_type=PeftType.LORA,       # tipo di adapter
+        task_type=TaskType.SEQ_CLS,    # sequence classification
+        inference_mode=False,          # training mode
+        init_r=8,                      # rank iniziale
+        max_r=32,                      # rank massimo consentito
         lora_alpha=32,
         lora_dropout=0.1,
-        growth_factor=2.0,               # di quanto può crescere r ad ogni update
-        threshold=0.01,                  # soglia di “importanza” per aggiungere rank
-        update_every=100,                # ogni quante iterazioni valutare l’adattamento
+        growth_factor=2.0,             # fattore di crescita del rank
+        threshold=0.01,                # soglia di “importanza” per aumentare r
+        update_every=100,              # ogni quanti step r viene adattato
         target_modules=["query", "value"]
     )
 
-
+    # Applica il configuration AutoLoRA al modello
     model = get_peft_model(base_model, peft_config)
-    model.print_trainable_parameters()  # per controllare quanti parametri si addestrano
+    model.print_trainable_parameters()
 
-    # DataLoader
+    # Prepara i DataLoader
     train_loader = DataLoader(
         dataset["train"],
         batch_size=BATCH_SIZE,
@@ -62,17 +57,17 @@ def train():
         collate_fn=default_data_collator
     )
 
-    # Ottimizzatore (aggiorna SOLO parametri LoRA + classifier)
+    # Optimizer: solo parametri LoRA + classifier
     optimizer = AdamW(
         filter(lambda p: p.requires_grad, model.parameters()),
         lr=LEARNING_RATE
     )
 
-    # Mixed precision CUDA
+    # Mixed precision
     use_amp = True
     scaler = torch.cuda.amp.GradScaler() if use_amp else None
 
-    from sklearn.metrics import accuracy_score, f1_score  # <-- aggiungi all'inizio del file se non già presente
+    from sklearn.metrics import accuracy_score, f1_score
 
     for epoch in range(EPOCHS):
         start = time.time()
@@ -104,7 +99,7 @@ def train():
         avg_loss = total_loss / len(train_loader)
         print(f"\nEpoch {epoch+1} — Avg Train Loss: {avg_loss:.4f} — Time: {epoch_time:.1f}s")
 
-        # 🔍 VALIDATION
+        # VALIDATION
         model.eval()
         all_preds, all_labels = [], []
         with torch.no_grad():
@@ -123,28 +118,24 @@ def train():
             adapter_dir_epoch = os.path.join(SAVE_DIR, f"{MODEL_NAME}-{DATASET_NAME}_epoch_{epoch+1}")
             os.makedirs(adapter_dir_epoch, exist_ok=True)
             model.save_pretrained(adapter_dir_epoch)
-            print(f"✔️  LoRA adapter (epoch {epoch+1}) salvato in: {adapter_dir_epoch}")
-            save_to_hf(adapter_dir_epoch, repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME}-{DATASET_NAME}-epoch-{epoch+1}")
+            save_to_hf(adapter_dir_epoch,
+                       repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME}-{DATASET_NAME}-epoch-{epoch+1}")
 
-
-    # Salvataggio del solo LoRA adapter finale
+    # Salvataggio finale dell’adapter LoRA
     os.makedirs(SAVE_DIR, exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     adapter_dir_final = os.path.join(SAVE_DIR, f"{MODEL_NAME}-{DATASET_NAME}_lora_adapter_{ts}")
-    os.makedirs(adapter_dir_final, exist_ok=True)
-
     model.save_pretrained(adapter_dir_final)
     print(f"✔️  LoRA adapter finale salvato in: {adapter_dir_final}")
 
-    # Salvataggio opzionale anche del modello intero come .pth
-    pth_name = f"{MODEL_NAME}-{DATASET_NAME}_cross_encoder_qqp_{ts}.pth"
-    pth_path = os.path.join(SAVE_DIR, pth_name)
+    # (Opzionale) salva anche lo state_dict completo
+    pth_path = os.path.join(SAVE_DIR, f"{MODEL_NAME}-{DATASET_NAME}_cross_encoder_{ts}.pth")
     torch.save(model.state_dict(), pth_path)
     print(f"✔️ Modello cross‑encoder salvato in: {pth_path}")
 
-    # Upload su Hugging Face Hub dell'adapter finale
-    save_to_hf(adapter_dir_final, repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME}-{DATASET_NAME}-final")
-
+    # Upload su Hugging Face Hub
+    save_to_hf(adapter_dir_final,
+               repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME}-{DATASET_NAME}-final")
 
 if __name__ == "__main__":
     train()
