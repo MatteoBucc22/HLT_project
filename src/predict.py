@@ -6,7 +6,7 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from config import DEVICE, MODEL_NAME
 import argparse
 
- def predict(sentence1: str, sentence2: str, model_path: str):
+def predict(sentence1: str, sentence2: str, model_path: str):
     """
     Esegue inferenza su coppia di frasi senza soglia esterna: decide sulla base
     del confronto diretto tra le due probabilità (classe 0 vs classe 1).
@@ -50,7 +50,7 @@ import argparse
 
     return pred, conf
 
- def main():
+def main():
     parser = argparse.ArgumentParser(description="Paraphrase prediction")
     parser.add_argument("sentence1", type=str, help="Prima frase")
     parser.add_argument("sentence2", type=str, help="Seconda frase")
@@ -73,5 +73,5 @@ import argparse
     print(f"› Frase B: {args.sentence2!r}\n")
     print(f"=> Model prediction: {pred_str} (conf={conf:.2%})")
 
- if __name__ == "__main__":
+if __name__ == "__main__":
     main()
