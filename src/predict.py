@@ -6,12 +6,16 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from config import DEVICE, MODEL_NAME
 import argparse
 
-def predict(sentence1: str, sentence2: str, model_path: str):
-    """Restituisce (pred, conf) dove pred è 1 se parafrasi, 0 altrimenti, 
-    e conf è la probabilità associata."""
-    tokenizer = AutoTokenizer.from_pretrained(model_path)  # carica tokenizer dal modello fine-tunato
+import torch
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from model import get_model  # Se hai un metodo per costruire il tuo modello
 
-    model = AutoModelForSequenceClassification.from_pretrained(model_path)
+def predict(sentence1: str, sentence2: str, model_path: str):
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)  # Usa il modello di base per il tokenizer
+
+    # Carica il modello con i pesi salvati nel file .pth
+    model = get_model()  # O costruisci il modello in base alla tua architettura
+    model.load_state_dict(torch.load(model_path))  # Carica i pesi dal file .pth
     model.to(DEVICE)
     model.eval()
 
@@ -31,6 +35,7 @@ def predict(sentence1: str, sentence2: str, model_path: str):
         conf = probs[pred].item()
 
     return pred, conf
+
 
 def main():
     parser = argparse.ArgumentParser(description="Paraphrase prediction")
