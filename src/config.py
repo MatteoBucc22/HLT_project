@@ -1,6 +1,6 @@
-MODEL_NAME = "roberta-base"
-DATASET_NAME = "qqp"
-MAX_LENGTH = 64
+MODEL_NAME = "Musixmatch/umberto-commoncrawl-cased-v1"
+DATASET_NAME = "similEX"
+MAX_LENGTH = 256
 BATCH_SIZE = 32
 LEARNING_RATE = 3e-5
 EPOCHS = 5
