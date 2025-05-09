@@ -14,7 +14,7 @@ def predict(sentence1: str, sentence2: str):
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
     base_model = get_model()
-    model = PeftModel.from_pretrained(base_model, "outputs/lora_adapter")
+    model = PeftModel.from_pretrained(base_model, "/kaggle/working/HLT_project/outputs/Musixmatch-umberto-commoncrawl-cased-v1-similEX_lora_adapter_20250509_122213")
     model.to(DEVICE)
     model.eval()
 
