@@ -2,19 +2,16 @@ import os
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 import torch
-from transformers import AutoTokenizer
-from peft import PeftModel
-from model import get_model
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from config import DEVICE, MODEL_NAME
 import argparse
 
 def predict(sentence1: str, sentence2: str, model_path: str):
     """Restituisce (pred, conf) dove pred è 1 se parafrasi, 0 altrimenti, 
     e conf è la probabilità associata."""
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    tokenizer = AutoTokenizer.from_pretrained(model_path)  # carica tokenizer dal modello fine-tunato
 
-    base_model = get_model()
-    model = PeftModel.from_pretrained(base_model, model_path)
+    model = AutoModelForSequenceClassification.from_pretrained(model_path)
     model.to(DEVICE)
     model.eval()
 
@@ -39,7 +36,7 @@ def main():
     parser = argparse.ArgumentParser(description="Paraphrase prediction")
     parser.add_argument("sentence1", type=str, help="Prima frase")
     parser.add_argument("sentence2", type=str, help="Seconda frase")
-    parser.add_argument("--model_path", type=str, required=True, help="Path al LoRA adapter salvato")
+    parser.add_argument("--model_path", type=str, required=True, help="Path al modello fine-tunato")
     args = parser.parse_args()
 
     pred, conf = predict(args.sentence1, args.sentence2, args.model_path)
