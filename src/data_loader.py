@@ -8,7 +8,7 @@ from config import MODEL_NAME, MAX_LENGTH
 from sklearn.model_selection import train_test_split
 
 
-def get_datasets(txt_path: str = "/kaggle/working/HLT_project/src/SimilEx_dataset.txt") -> DatasetDict:
+def get_datasets(txt_path: str = "/kaggle/working/HLT_project/src/PACCSS.txt") -> DatasetDict:
     """
     Carica un file .txt tab-delimitato con colonne:
       - Sentence_1
