@@ -3,26 +3,31 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from config import DEVICE
+from config import DEVICE, MODEL_NAME
 import argparse
-import os
 
 def predict(sentence1: str, sentence2: str, model_path: str):
-    # Usa model_path anche come base per il tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    # 1) tokenizer: sempre dal modello base
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
-    if os.path.isdir(model_path):  # modello Hugging Face scaricato localmente
-        model = AutoModelForSequenceClassification.from_pretrained(model_path)
-    elif model_path.endswith(".pth"):  # modello locale in PyTorch (.pth)
-        from model import get_model  # Assumi che get_model() ritorni lo stesso architettura
+    # 2) modello: dal checkpoint salvato in model_path
+    if os.path.isdir(model_path):
+        # Carica config.json + safetensors (o pytorch_model.bin)
+        model = AutoModelForSequenceClassification.from_pretrained(model_path, local_files_only=True)
+    elif model_path.endswith(".pth"):
+        # File .pth: usa la tua architettura e carica lo state dict
+        from model import get_model
         model = get_model()
-        model.load_state_dict(torch.load(model_path, map_location=DEVICE))
-    else:  # modello Hugging Face da Internet (es. "utente/modello")
+        state = torch.load(model_path, map_location=DEVICE)
+        model.load_state_dict(state)
+    else:
+        # Nome Hugging Face Hub
         model = AutoModelForSequenceClassification.from_pretrained(model_path)
 
     model.to(DEVICE)
     model.eval()
 
+    # 3) inferenza
     inputs = tokenizer(
         sentence1,
         sentence2,
@@ -40,12 +45,16 @@ def predict(sentence1: str, sentence2: str, model_path: str):
 
     return pred, conf
 
-
 def main():
     parser = argparse.ArgumentParser(description="Paraphrase prediction")
     parser.add_argument("sentence1", type=str, help="Prima frase")
     parser.add_argument("sentence2", type=str, help="Seconda frase")
-    parser.add_argument("--model_path", type=str, required=True, help="Path al modello fine-tunato o nome Hugging Face")
+    parser.add_argument(
+        "--model_path",
+        type=str,
+        required=True,
+        help="Path alla cartella di checkpoint (config.json + safetensors) o file .pth, o nome HF Hub"
+    )
     args = parser.parse_args()
 
     pred, conf = predict(args.sentence1, args.sentence2, args.model_path)
