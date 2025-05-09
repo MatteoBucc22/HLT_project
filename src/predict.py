@@ -8,13 +8,13 @@ from model import get_model
 from config import DEVICE, MODEL_NAME
 import argparse
 
-def predict(sentence1: str, sentence2: str):
+def predict(sentence1: str, sentence2: str, model_path: str):
     """Restituisce (pred, conf) dove pred è 1 se parafrasi, 0 altrimenti, 
     e conf è la probabilità associata."""
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
     base_model = get_model()
-    model = PeftModel.from_pretrained(base_model, "/kaggle/working/HLT_project/outputs/Musixmatch-umberto-commoncrawl-cased-v1-similEX_lora_adapter_20250509_122213")
+    model = PeftModel.from_pretrained(base_model, model_path)
     model.to(DEVICE)
     model.eval()
 
@@ -39,9 +39,10 @@ def main():
     parser = argparse.ArgumentParser(description="Paraphrase prediction")
     parser.add_argument("sentence1", type=str, help="Prima frase")
     parser.add_argument("sentence2", type=str, help="Seconda frase")
+    parser.add_argument("--model_path", type=str, required=True, help="Path al LoRA adapter salvato")
     args = parser.parse_args()
 
-    pred, conf = predict(args.sentence1, args.sentence2)
+    pred, conf = predict(args.sentence1, args.sentence2, args.model_path)
     pred_str = "PARAFRASI" if pred else "NON‑PARAFRASI"
 
     print(f"› Frase A: {args.sentence1!r}")

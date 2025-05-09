@@ -1,5 +1,6 @@
 import os
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 import torch
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
@@ -7,25 +8,22 @@ from transformers import default_data_collator
 from tqdm.auto import tqdm
 import time
 import datetime
-from sklearn.metrics import accuracy_score, f1_score  # <-- assicurati che sia in cima
+import matplotlib.pyplot as plt
+from sklearn.metrics import accuracy_score, f1_score
 
 from peft import get_peft_config, get_peft_model, LoraConfig, TaskType
 
 from data_loader import get_datasets
-from model import get_model, MODEL_NAME  # Importa anche MODEL_NAME
+from model import get_model, MODEL_NAME
 from config import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR, DATASET_NAME
 from hf_utils import save_to_hf
 
 
 def train():
-    # Pulizia del nome modello per Hugging Face repo
     model_name_clean = MODEL_NAME.replace("/", "-")
-
-    # Carica dataset e modello
     dataset = get_datasets()
     base_model = get_model().to(DEVICE)
 
-    # CONFIGURA LORA
     peft_config = LoraConfig(
         task_type=TaskType.SEQ_CLS,
         inference_mode=False,
@@ -33,11 +31,9 @@ def train():
         lora_alpha=32,
         target_modules=["query", "value"]
     )
-
     model = get_peft_model(base_model, peft_config)
     model.print_trainable_parameters()
 
-    # DataLoader
     train_loader = DataLoader(
         dataset["train"],
         batch_size=BATCH_SIZE,
@@ -61,6 +57,8 @@ def train():
 
     use_amp = True
     scaler = torch.cuda.amp.GradScaler() if use_amp else None
+
+    losses, accuracies, f1_scores = [], [], []
 
     for epoch in range(EPOCHS):
         start = time.time()
@@ -90,9 +88,9 @@ def train():
 
         epoch_time = time.time() - start
         avg_loss = total_loss / len(train_loader)
+        losses.append(avg_loss)
         print(f"\nEpoch {epoch+1} — Avg Train Loss: {avg_loss:.4f} — Time: {epoch_time:.1f}s")
 
-        # 🔍 VALIDATION
         model.eval()
         all_preds, all_labels = [], []
         with torch.no_grad():
@@ -105,6 +103,8 @@ def train():
 
         acc = accuracy_score(all_labels, all_preds)
         f1 = f1_score(all_labels, all_preds)
+        accuracies.append(acc)
+        f1_scores.append(f1)
         print(f"🧪 Validation — Accuracy: {acc:.4f} | F1 Score: {f1:.4f}\n")
 
         if (epoch + 1) % 2 == 0:
@@ -114,7 +114,6 @@ def train():
             print(f"✔️  LoRA adapter (epoch {epoch+1}) salvato in: {adapter_dir_epoch}")
             save_to_hf(adapter_dir_epoch, repo_id=f"MatteoBucc/passphrase-identification-{model_name_clean}-{DATASET_NAME}-epoch-{epoch+1}")
 
-    # Salvataggio finale
     os.makedirs(SAVE_DIR, exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     adapter_dir_final = os.path.join(SAVE_DIR, f"{model_name_clean}-{DATASET_NAME}_lora_adapter_{ts}")
@@ -123,14 +122,41 @@ def train():
     model.save_pretrained(adapter_dir_final)
     print(f"✔️  LoRA adapter finale salvato in: {adapter_dir_final}")
 
-    # Salvataggio modello intero .pth
     pth_name = f"{model_name_clean}-{DATASET_NAME}_cross_encoder_qqp_{ts}.pth"
     pth_path = os.path.join(SAVE_DIR, pth_name)
     torch.save(model.state_dict(), pth_path)
     print(f"✔️ Modello cross‑encoder salvato in: {pth_path}")
 
-    # Upload adapter finale
     save_to_hf(adapter_dir_final, repo_id=f"MatteoBucc/passphrase-identification-{model_name_clean}-{DATASET_NAME}-final")
+
+    # 🎨 Plot dei grafici
+    epochs_range = range(1, EPOCHS + 1)
+
+    plt.figure(figsize=(12, 5))
+
+    # Loss
+    plt.subplot(1, 2, 1)
+    plt.plot(epochs_range, losses, label="Train Loss", color="blue", marker="o")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.title("Training Loss")
+    plt.grid(True)
+    plt.legend()
+
+    # Accuracy + F1
+    plt.subplot(1, 2, 2)
+    plt.plot(epochs_range, accuracies, label="Val Accuracy", color="green", marker="o")
+    plt.plot(epochs_range, f1_scores, label="Val F1 Score", color="orange", marker="x")
+    plt.xlabel("Epoch")
+    plt.ylabel("Score")
+    plt.title("Validation Accuracy / F1")
+    plt.grid(True)
+    plt.legend()
+
+    plt.tight_layout()
+    plot_path = os.path.join(SAVE_DIR, f"{model_name_clean}-{DATASET_NAME}_metrics_plot.png")
+    plt.savefig(plot_path)
+    print(f"📊 Grafici salvati in {plot_path}")
 
 
 if __name__ == "__main__":
