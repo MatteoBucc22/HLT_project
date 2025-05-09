@@ -40,8 +40,9 @@ def predict(sentence1: str, sentence2: str, model_path: str, threshold: float):
         outputs = model(**inputs)
         probs = torch.softmax(outputs.logits, dim=1)[0]
         # uso la soglia passata invece di confronto 0.5 implicito
-        pred = int(probs[1] >= threshold)
-        conf = probs[pred].item()
+        prob_par = probs[1].item()
+        pred     = int(prob_par >= threshold)
+        conf     = prob_par
 
     return pred, conf
 
@@ -73,7 +74,7 @@ def main():
 
     print(f"› Frase A: {args.sentence1!r}")
     print(f"› Frase B: {args.sentence2!r}\n")
-    print(f"=> Model prediction: {pred_str} (conf {conf:.2%}, threshold={args.threshold})")
+    print(f"=> Model prediction: {pred_str} (P(par)= {conf:.2%}, threshold={args.threshold})")
 
 if __name__ == "__main__":
     main()
