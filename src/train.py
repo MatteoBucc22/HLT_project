@@ -86,6 +86,7 @@ optimizer = AdamW(
     lr=LEARNING_RATE,
     weight_decay=WEIGHT_DECAY
 )
+
 total_steps = len(train_loader) * EPOCHS
 scheduler = get_linear_schedule_with_warmup(
     optimizer,
@@ -93,7 +94,6 @@ scheduler = get_linear_schedule_with_warmup(
     num_training_steps=total_steps
 )
 
-# Loss will come from model outputs (CrossEntropy for SEQ_CLS)
 # Early stopping
 best_f1 = 0.0
 epochs_no_improve = 0
@@ -113,6 +113,9 @@ for epoch in range(1, EPOCHS + 1):
 
         outputs = model(**batch)
         loss = outputs.loss
+        # Ensure scalar loss (for DataParallel compatibility)
+        if loss.dim() > 0:
+            loss = loss.mean()
         loss.backward()
 
         # Gradient clipping
@@ -157,13 +160,12 @@ for epoch in range(1, EPOCHS + 1):
     # -------------------------
     #  Checkpoint & Early Stopping
     # -------------------------
-    # Save best model
+    model_to_save = model.module if hasattr(model, 'module') else model
     if f1 > best_f1:
         best_f1 = f1
         epochs_no_improve = 0
         best_dir = os.path.join(SAVE_DIR, 'best_model')
         os.makedirs(best_dir, exist_ok=True)
-        model_to_save = model.module if hasattr(model, 'module') else model
         model_to_save.save_pretrained(best_dir)
         print(f"✔️ Best model saved with F1: {best_f1:.4f} at {best_dir}")
     else:
@@ -176,7 +178,6 @@ for epoch in range(1, EPOCHS + 1):
     if epoch % 2 == 0:
         adapter_dir = os.path.join(SAVE_DIR, f"lora_epoch_{epoch}")
         os.makedirs(adapter_dir, exist_ok=True)
-        model_to_save = model.module if hasattr(model, 'module') else model
         model_to_save.save_pretrained(adapter_dir)
         save_to_hf(adapter_dir,
                    repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME.replace('/', '-')}-{DATASET_NAME}-epoch-{epoch}")
@@ -186,8 +187,8 @@ for epoch in range(1, EPOCHS + 1):
 #  Final Save
 # -----------------------------
 final_dir = os.path.join(SAVE_DIR, f"lora_final_{ts}")
+# ensure directory exists
 os.makedirs(final_dir, exist_ok=True)
-model_to_save = model.module if hasattr(model, 'module') else model
 model_to_save.save_pretrained(final_dir)
 torch.save(model.state_dict(), os.path.join(final_dir, f"model_full_{ts}.pth"))
 print(f"✔️ Final LoRA adapter and full model saved at {final_dir}")
