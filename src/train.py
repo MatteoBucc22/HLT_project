@@ -43,7 +43,7 @@ writer = SummaryWriter(log_dir=os.path.join(SAVE_DIR, 'runs', ts))
 #  Load Data
 # -----------------------------
 print("🔄 Loading datasets...")
-datasets = get_datasets(max_length=MAX_LENGTH)
+datasets = get_datasets()
 train_dataset = datasets['train']
 val_dataset = datasets['validation']
 print(f" » Train size: {len(train_dataset)} | Val size: {len(val_dataset)}")
