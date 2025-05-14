@@ -41,14 +41,43 @@ def predict(sentence1: str, sentence2: str, model_path: str):
 
 def run_tests(model_path: str):
     print("\n== TEST PARAFRASI ==")
+    
+    # test_cases = [
+    #     # (frase1, frase2, label_attesa)
+    #     ("Roma è la capitale d'Italia.", "La capitale italiana è Roma.", 1),
+    #     ("Oggi piove in città.", "Il sole splende nel cielo.", 0),
+    #     ("Il cane corre nel parco.", "Un cane sta correndo in un parco.", 1),
+    #     ("L'esame è stato facile.", "L'interrogazione era difficile.", 0),
+    #     ("Mi piace ascoltare la musica.", "Adoro sentire le canzoni.", 1),
+    #     ("Ieri sono andato al mare.", "Oggi vado in montagna.", 0),
+    # ]
+
     test_cases = [
-        # (frase1, frase2, label_attesa)
-        ("Roma è la capitale d'Italia.", "La capitale italiana è Roma.", 1),
-        ("Oggi piove in città.", "Il sole splende nel cielo.", 0),
-        ("Il cane corre nel parco.", "Un cane sta correndo in un parco.", 1),
-        ("L'esame è stato facile.", "L'interrogazione era difficile.", 0),
-        ("Mi piace ascoltare la musica.", "Adoro sentire le canzoni.", 1),
-        ("Ieri sono andato al mare.", "Oggi vado in montagna.", 0),
+        ("Il sole splende alto nel cielo.", "La luna illumina la notte.", 0),
+        ("Ho perso il treno stamattina.", "Sono arrivato puntuale in ufficio.", 0),
+        ("Marco ha comprato una macchina nuova.", "Luca ha venduto la sua vecchia auto.", 0),
+        ("La situazione è sfuggita di mano.", "Tutto è sotto controllo.", 0),
+        ("Il tempo vola quando ci si diverte.", "Le ore passano lentamente durante le lezioni noiose.", 0),
+        ("Ho acceso la luce.", "Ho spento la lampada.", 0),
+        ("Il bambino rideva felice.", "La bambina piangeva disperata.", 0),
+        ("La strada era deserta.", "C’era molta gente in piazza.", 0),
+        ("Ho letto un libro interessante.", "Ho scritto una lettera importante.", 0),
+        ("Il cane dorme sul divano.", "Il gatto gioca in giardino.", 0),
+        ("La porta è aperta.", "La finestra è chiusa.", 0),
+        ("Ho finito il lavoro.", "Devo ancora iniziare il progetto.", 0),
+        ("Il film era noioso.", "Il libro era avvincente.", 0),
+        ("Ho dimenticato le chiavi a casa.", "Ho ricordato di prendere il portafoglio.", 0),
+        ("La pizza era calda.", "Il gelato era freddo.", 0),
+        ("Era tardi quando sono arrivato.", "Sono giunto a destinazione dopo l'orario previsto.", 1),
+        ("Non ho capito la domanda.", "La richiesta non mi è stata chiara.", 1),
+        ("Abbiamo deciso di rimandare l’incontro.", "L’appuntamento è stato posticipato.", 1),
+        ("Il bambino si è addormentato.", "Il piccolo ha preso sonno.", 1),
+        ("La strada era completamente vuota.", "Non c’era nessuno lungo il percorso.", 1),
+        ("Ho terminato il libro.", "Sono arrivato all’ultima pagina del romanzo.", 1),
+        ("Il computer non funziona.", "Il PC è fuori uso.", 1),
+        ("Mi sento stanco oggi.", "Oggi non ho molte energie.", 1),
+        ("La macchina non parte.", "L’auto non si accende.", 1),
+        ("Abbiamo vinto la partita.", "La nostra squadra ha ottenuto la vittoria.", 1),
     ]
 
     correct = 0
