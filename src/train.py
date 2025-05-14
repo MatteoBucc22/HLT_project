@@ -10,11 +10,13 @@ from tqdm.auto import tqdm
 import time
 import datetime
 from sklearn.metrics import accuracy_score, f1_score
+import numpy as np
 
 from peft import get_peft_model, LoraConfig, TaskType
+
 from data_loader import get_datasets
 from model import get_model, MODEL_NAME
-from config import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR, DATASET_NAME, SEED
+from config import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR, DATASET_NAME
 from hf_utils import save_to_hf
 
 
@@ -25,6 +27,33 @@ def set_seed(seed):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
+
+def generate_embeddings(model, dataloader, save_path):
+    model.eval()
+    all_embeddings = []
+    all_labels = []
+
+    with torch.no_grad():
+        for batch in tqdm(dataloader, desc="🔍 Generating Embeddings"):
+            labels = batch["labels"]
+            batch = {k: v.to(DEVICE) for k, v in batch.items()}
+            outputs = model.base_model(**batch, output_hidden_states=True, return_dict=True)
+
+            # Usa il [CLS] token embedding dall'ultimo hidden state
+            cls_embeddings = outputs.hidden_states[-1][:, 0, :]  # [batch_size, hidden_dim]
+            all_embeddings.append(cls_embeddings.cpu())
+            all_labels.extend(labels)
+
+    all_embeddings = torch.cat(all_embeddings)
+    all_labels = torch.tensor(all_labels)
+
+    os.makedirs(save_path, exist_ok=True)
+    torch.save(
+        {"embeddings": all_embeddings, "labels": all_labels},
+        os.path.join(save_path, "validation_embeddings.pt")
+    )
+    print(f"💾 Embedding di validazione salvati in: {save_path}/validation_embeddings.pt")
 
 
 def train():
@@ -42,6 +71,7 @@ def train():
         target_modules=["query", "value"]
     )
     model = get_peft_model(base_model, peft_config)
+    model.print_trainable_parameters()
     model.print_trainable_parameters()
 
     train_loader = DataLoader(
@@ -163,6 +193,9 @@ def train():
             f"{safe_model_name}-{DATASET_NAME}-final"
         )
     )
+
+    # ⏬ Salva embeddings per l'ensemble
+    generate_embeddings(model, val_loader, save_path=adapter_dir_final)
 
 
 if __name__ == "__main__":
