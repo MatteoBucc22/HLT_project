@@ -65,31 +65,23 @@ def main():
     base_model = get_model()
 
     if os.path.isdir(ckpt):
-        # Directory: decide se è LoRA adapter (contiene adapter_config.json) oppure modello completo
         files = set(os.listdir(ckpt))
         if "adapter_config.json" in files:
-            print(f"⚙️  Loading LoRA adapter from {ckpt}")
-            model = PeftModel.from_pretrained(
-                base_model, ckpt, safe_serialization=True
-            )
+            # LoRA adapter
+            model = PeftModel.from_pretrained(base_model, ckpt, safe_serialization=True)
         else:
-            print(f"⚙️  Loading full model from local folder {ckpt}")
-            model = AutoModelForSequenceClassification.from_pretrained(
-                ckpt, local_files_only=True
-            )
-    elif ckpt.endswith(".pth"):
+            # modello completo salvato con .save_pretrained()
+            model = AutoModelForSequenceClassification.from_pretrained(ckpt, local_files_only=True)
 
-            print(f"⚙️  Loading full model from local folder {ckpt}")
-            model = AutoModelForSequenceClassification.from_pretrained(
-                ckpt, local_files_only=True
-            )
     elif ckpt.endswith(".pth"):
-        print(f"⚙️  Loading cross-encoder state_dict from {ckpt}")
+        # qui carico solo lo state_dict sulla base-model
+        print(f"⚙️  Loading state_dict from {ckpt}")
         model = base_model
         state = torch.load(ckpt, map_location=DEVICE)
         model.load_state_dict(state)
+
     else:
-        print(f"⚙️  Loading Hugging Face hub model '{ckpt}'")
+        # HF-hub
         model = AutoModelForSequenceClassification.from_pretrained(ckpt)
 
     model.to(DEVICE)
