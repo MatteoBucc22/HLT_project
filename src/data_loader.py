@@ -109,6 +109,24 @@ def get_datasets(
     check_overlap("Sentence_1")
     check_overlap("Sentence_2")
 
+    # Controllo duplicati a livello di riga intera
+    def check_row_overlap(dfs, names):
+        row_sets = {
+            name: set(df[['Sentence_1','Sentence_2','label']].apply(tuple, axis=1))
+            for name, df in zip(names, dfs)
+        }
+        for i, ni in enumerate(names):
+            for j, nj in enumerate(names):
+                if j <= i: continue
+                common = row_sets[ni] & row_sets[nj]
+                msg = f"{len(common)} righe identiche tra {ni} e {nj}"
+                print(f"[OK] {msg}" if not common else f"[WARNING] {msg}")
+
+    check_row_overlap(
+        [df_train, df_val, df_test],
+        ['train','validation','test']
+    )
+
     # 8) Crea DatasetDict
     ds = DatasetDict({
         "train": Dataset.from_pandas(df_train.reset_index(drop=True)),
