@@ -13,8 +13,8 @@ def get_datasets():
 
     def preprocess(examples):
         # Access question texts directly from "question1" and "question2"
-        q1 = examples["question1"]
-        q2 = examples["question2"]
+        q1 = examples["sentence1"]
+        q2 = examples["sentence2"]
 
         tok = tokenizer(
             q1,
@@ -27,7 +27,7 @@ def get_datasets():
         return tok
 
     # Applica la tokenizzazione a tutte le suddivisioni
-    tokenized = ds.map(preprocess, batched=True, remove_columns=["idx", "question1", "question2"])
+    tokenized = ds.map(preprocess, batched=True, remove_columns=["sentence1", "sentence2", "label", "idx"])
     tokenized.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
     labels = ds["train"]["label"]
     print("VALORI UNICI DELLE ETICHETTE:", set(labels))
