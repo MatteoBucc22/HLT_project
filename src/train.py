@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
-from transformers import default_data_collator
+from transformers import default_data_collator, get_scheduler
 from tqdm.auto import tqdm
 import time
 import datetime
@@ -17,6 +17,7 @@ from model import get_model, MODEL_NAME
 from config import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR, DATASET_NAME, SEED
 from hf_utils import save_to_hf
 
+
 def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
@@ -24,6 +25,7 @@ def set_seed(seed):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
 
 def train():
     set_seed(SEED)
@@ -39,7 +41,6 @@ def train():
         lora_dropout=0.1,
         target_modules=["query", "value"]
     )
-
     model = get_peft_model(base_model, peft_config)
     model.print_trainable_parameters()
 
@@ -62,6 +63,16 @@ def train():
     optimizer = AdamW(
         filter(lambda p: p.requires_grad, model.parameters()),
         lr=LEARNING_RATE
+    )
+
+    # Scheduler: warm-up + linear decay
+    num_training_steps = EPOCHS * len(train_loader)
+    num_warmup_steps = int(0.1 * num_training_steps)  # 10% warm-up
+    scheduler = get_scheduler(
+        name="linear",
+        optimizer=optimizer,
+        num_warmup_steps=num_warmup_steps,
+        num_training_steps=num_training_steps
     )
 
     use_amp = True
@@ -92,6 +103,9 @@ def train():
                 loss.backward()
                 optimizer.step()
 
+            # Avanza lo scheduler dopo ogni step
+            scheduler.step()
+
             total_loss += loss.item()
             loop.set_postfix(loss=total_loss / (batch_idx + 1))
 
@@ -99,6 +113,7 @@ def train():
         avg_loss = total_loss / len(train_loader)
         print(f"\nEpoch {epoch+1} — Avg Train Loss: {avg_loss:.4f} — Time: {epoch_time:.1f}s")
 
+        # Validation
         model.eval()
         all_preds, all_labels = [], []
         with torch.no_grad():
@@ -114,26 +129,41 @@ def train():
         print(f"🧪 Validation — Accuracy: {acc:.4f} | F1 Score: {f1:.4f}\n")
 
         if (epoch + 1) % 2 == 0:
-            adapter_dir_epoch = os.path.join(SAVE_DIR, f"{safe_model_name}-{DATASET_NAME}_epoch_{epoch+1}")
+            adapter_dir_epoch = os.path.join(
+                SAVE_DIR, f"{safe_model_name}-{DATASET_NAME}_epoch_{epoch+1}")
             os.makedirs(adapter_dir_epoch, exist_ok=True)
             model.save_pretrained(adapter_dir_epoch)
             print(f"✔️  LoRA adapter (epoch {epoch+1}) salvato in: {adapter_dir_epoch}")
-            save_to_hf(adapter_dir_epoch, repo_id=f"MatteoBucc/passphrase-identification-{safe_model_name}-{DATASET_NAME}-epoch-{epoch+1}")
+            save_to_hf(
+                adapter_dir_epoch,
+                repo_id=(
+                    f"MatteoBucc/passphrase-identification-"
+                    f"{safe_model_name}-{DATASET_NAME}-epoch-{epoch+1}"
+                )
+            )
 
+    # Salvataggio finale
     os.makedirs(SAVE_DIR, exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    adapter_dir_final = os.path.join(SAVE_DIR, f"{safe_model_name}-{DATASET_NAME}_lora_adapter_{ts}")
+    adapter_dir_final = os.path.join(
+        SAVE_DIR, f"{safe_model_name}-{DATASET_NAME}_lora_adapter_{ts}")
     os.makedirs(adapter_dir_final, exist_ok=True)
-
     model.save_pretrained(adapter_dir_final)
     print(f"✔️  LoRA adapter finale salvato in: {adapter_dir_final}")
 
     pth_name = f"{safe_model_name}-{DATASET_NAME}_cross_encoder_qqp_{ts}.pth"
     pth_path = os.path.join(SAVE_DIR, pth_name)
     torch.save(model.state_dict(), pth_path)
-    print(f"✔️ Modello cross‑encoder salvato in: {pth_path}")
+    print(f"✔️ Modello cross-encoder salvato in: {pth_path}")
 
-    save_to_hf(adapter_dir_final, repo_id=f"MatteoBucc/passphrase-identification-{safe_model_name}-{DATASET_NAME}-final")
+    save_to_hf(
+        adapter_dir_final,
+        repo_id=(
+            f"MatteoBucc/passphrase-identification-"
+            f"{safe_model_name}-{DATASET_NAME}-final"
+        )
+    )
+
 
 if __name__ == "__main__":
     train()
