@@ -9,63 +9,25 @@ from sklearn.model_selection import train_test_split
 
 
 def get_datasets(
-    txt_path: str = "/kaggle/working/HLT_project/src/PACCSS-IT.txt",
+    data_path: str = "/kaggle/working/HLT_project/src/PACCSS-IT-final.csv",
     t0: float = 0.8,
     beta: float = 0.1
 ) -> DatasetDict:
     """
-    Carica un file .txt tab-delimitato con colonne:
+    Carica un file .csv tab-delimitato con colonne:
       - Sentence_1
       - Sentence_2
-      - Cosine_Similarity
-      - Confidence
-    e restituisce un DatasetDict con split train/validation/test (70/10/20)
-    usa soglia adattiva basata su confidence:
-      threshold = t0 + beta * (1 - confidence)
-      label = cosine_similarity > threshold
-    Filtra solo righe con confidence > 0.9.
+      - label
     """
     # 1) Carica il dataset (salta righe malformate)
     df = pd.read_csv(
-        txt_path,
+        data_path,
         sep="\t",
         engine="python",
         on_bad_lines="skip",
-        usecols=["Sentence_1", "Sentence_2", "Cosine_Similarity", "Confidence"]
+        usecols=["Sentence_1", "Sentence_2", "label"]
     )
 
-    # 2) Converte in numerico e rimuove righe malformate
-    df["Cosine_Similarity"] = pd.to_numeric(df["Cosine_Similarity"], errors="coerce")
-    df["Confidence"]       = pd.to_numeric(df["Confidence"], errors="coerce")
-    df = df.dropna(subset=["Cosine_Similarity", "Confidence"]).reset_index(drop=True)
-
-    # 3) Filtra solo righe con confidence > 0.9
-    df = df[df["Confidence"] > 0.9].reset_index(drop=True)
-
-    # Stampa numero esempi originali
-    original_count = len(df)
-    print(f"Numero esempi originali (confidence>0.9): {original_count}")
-
-    # 4) Rinomina colonne
-    df = df.rename(
-        columns={
-            "Sentence_1": "question1",
-            "Sentence_2": "question2",
-            "Cosine_Similarity": "cosine_similarity",
-            "Confidence": "confidence"
-        }
-    )
-
-    # 5) Calcola soglia adattiva e binarizza
-    df["threshold"] = t0 + beta * (1 - df["confidence"])
-    df["label"]     = (df["cosine_similarity"] > df["threshold"]).astype(int)
-
-    # Stampa esempi con label=1
-    pos_count = int(df["label"].sum())
-    print(f"Numero esempi con label=1 (parafrasi): {pos_count}")
-
-    # 6) Seleziona colonne utili
-    df = df[["question1", "question2", "label"]]
 
     # 7) Split stratificato 70/10/20
     df_train, df_temp = train_test_split(
@@ -90,8 +52,8 @@ def get_datasets(
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     def preprocess(examples):
         tokens = tokenizer(
-            examples["question1"],
-            examples["question2"],
+            examples["Sentence_1"],
+            examples["Sentence_2"],
             padding="max_length",
             truncation=True,
             max_length=MAX_LENGTH,
@@ -102,7 +64,7 @@ def get_datasets(
     tokenized = ds.map(
         preprocess,
         batched=True,
-        remove_columns=["question1", "question2"]
+        remove_columns=["Sentence_1", "Sentence_2"]
     )
     tokenized.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
 
