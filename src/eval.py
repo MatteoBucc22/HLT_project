@@ -42,10 +42,10 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     ds = get_datasets()
     test_loader = DataLoader(
-        ds["test"], batch_size=args.batch_size,
+        ds["validation"], batch_size=args.batch_size,
         shuffle=False, collate_fn=default_data_collator
     )
-    print("✔️  Dataset test caricato:", len(ds["test"]), "esempi")
+    print("✔️  Dataset validation caricato:", len(ds["validation"]), "esempi")
 
     # Decido se è un file .pth o una cartella
     ckpt = args.checkpoint
