@@ -22,7 +22,6 @@ def get_datasets(
     # 1) Carica il dataset (salta righe malformate)
     df = pd.read_csv(
         data_path,
-        sep="\t",
         engine="python",
         on_bad_lines="skip",
         usecols=["Sentence_1", "Sentence_2", "label"]
