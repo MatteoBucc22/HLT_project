@@ -18,7 +18,7 @@ from config import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR, DATASET_
 from hf_utils import save_to_hf
 
 
-def generate_embeddings(model, dataloader, save_path):
+def generate_embeddings(model, dataloader, save_path, repo_id=None):
     model.eval()
     all_embeddings = []
     all_labels = []
@@ -29,7 +29,6 @@ def generate_embeddings(model, dataloader, save_path):
             batch = {k: v.to(DEVICE) for k, v in batch.items()}
             outputs = model.base_model(**batch, output_hidden_states=True, return_dict=True)
 
-            # Usa il [CLS] token embedding dall'ultimo hidden state
             cls_embeddings = outputs.hidden_states[-1][:, 0, :]  # [batch_size, hidden_dim]
             all_embeddings.append(cls_embeddings.cpu())
             all_labels.extend(labels)
@@ -38,11 +37,18 @@ def generate_embeddings(model, dataloader, save_path):
     all_labels = torch.tensor(all_labels)
 
     os.makedirs(save_path, exist_ok=True)
+    file_path = os.path.join(save_path, "validation_embeddings.pt")
     torch.save(
         {"embeddings": all_embeddings, "labels": all_labels},
-        os.path.join(save_path, "validation_embeddings.pt")
+        file_path
     )
-    print(f"💾 Embedding di validazione salvati in: {save_path}/validation_embeddings.pt")
+    print(f"💾 Embedding di validazione salvati in: {file_path}")
+
+    # Upload embeddings to Hugging Face
+    if repo_id:
+        print(f"⏫ Caricamento embeddings su Hugging Face: {repo_id}")
+        save_to_hf(save_path, repo_id=repo_id)
+        print("✔️ Embeddings caricati su Hugging Face")
 
 
 def train():
@@ -128,6 +134,7 @@ def train():
         f1 = f1_score(all_labels, all_preds)
         print(f"🧪 Validation — Accuracy: {acc:.4f} | F1 Score: {f1:.4f}\n")
 
+        # Save LoRA adapter every 2 epochs
         if (epoch + 1) % 2 == 0:
             adapter_dir_epoch = os.path.join(SAVE_DIR, f"{MODEL_NAME}-{DATASET_NAME}_epoch_{epoch+1}")
             os.makedirs(adapter_dir_epoch, exist_ok=True)
@@ -144,7 +151,7 @@ def train():
     print(f"✔️  LoRA adapter finale salvato in: {adapter_dir_final}")
 
     # Save full model weights
-    pth_name = f"{MODEL_NAME}-{DATASET_NAME}_cross_encoder_qqp_{ts}.pth"
+    pth_name = f"{MODEL_NAME}-{DATASET_NAME}_cross_encoder_{ts}.pth"
     pth_path = os.path.join(SAVE_DIR, pth_name)
     torch.save(model.state_dict(), pth_path)
     print(f"✔️ Modello cross‑encoder salvato in: {pth_path}")
@@ -152,8 +159,13 @@ def train():
     # Upload final adapter
     save_to_hf(adapter_dir_final, repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME}-{DATASET_NAME}-final")
 
-    # ⏬ Salva embeddings per l'ensemble
-    generate_embeddings(model, val_loader, save_path=adapter_dir_final)
+    # Save and upload embeddings for ensemble
+    generate_embeddings(
+        model,
+        val_loader,
+        save_path=adapter_dir_final,
+        repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME}-{DATASET_NAME}-embeddings-{ts}"
+    )
 
 
 if __name__ == "__main__":
