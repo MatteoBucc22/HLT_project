@@ -20,10 +20,6 @@ def evaluate(model, dataloader):
         for batch in dataloader:
             batch = {k: v.to(DEVICE) for k, v in batch.items()}
             outputs = model(**batch)
-
-            print("Logistic shape:", outputs.logits.shape)
-            print("Labels dtype:", batch["labels"].dtype)
-            print("Unique labels:", torch.unique(batch["labels"]))
             
             preds = outputs.logits.argmax(dim=1)
             all_preds.extend(preds.cpu().tolist())
