@@ -55,12 +55,12 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     ds = get_datasets()
     test_loader = DataLoader(
-        ds["test"],
+        ds["validation"],
         batch_size=args.batch_size,
         shuffle=False,
         collate_fn=default_data_collator
     )
-    print(f"✔️  Caricati {len(ds['test'])} esempi di test")
+    print(f"✔️  Caricati {len(ds['validation'])} esempi di test")
 
     # modello base + caricamento weights
     model = get_model()
