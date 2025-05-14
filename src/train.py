@@ -7,22 +7,48 @@ from transformers import default_data_collator
 from tqdm.auto import tqdm
 import time
 import datetime
+from sklearn.metrics import accuracy_score, f1_score
+import numpy as np
 
-
-from peft import get_peft_config, get_peft_model, LoraConfig, TaskType
+from peft import get_peft_model, LoraConfig, TaskType
 
 from data_loader import get_datasets
-from model import get_model, MODEL_NAME  # Importa anche MODEL_NAME
+from model import get_model, MODEL_NAME
 from config import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR, DATASET_NAME
 from hf_utils import save_to_hf
 
 
+def generate_embeddings(model, dataloader, save_path):
+    model.eval()
+    all_embeddings = []
+    all_labels = []
+
+    with torch.no_grad():
+        for batch in tqdm(dataloader, desc="🔍 Generating Embeddings"):
+            labels = batch["labels"]
+            batch = {k: v.to(DEVICE) for k, v in batch.items()}
+            outputs = model.base_model(**batch, output_hidden_states=True, return_dict=True)
+
+            # Usa il [CLS] token embedding dall'ultimo hidden state
+            cls_embeddings = outputs.hidden_states[-1][:, 0, :]  # [batch_size, hidden_dim]
+            all_embeddings.append(cls_embeddings.cpu())
+            all_labels.extend(labels)
+
+    all_embeddings = torch.cat(all_embeddings)
+    all_labels = torch.tensor(all_labels)
+
+    os.makedirs(save_path, exist_ok=True)
+    torch.save(
+        {"embeddings": all_embeddings, "labels": all_labels},
+        os.path.join(save_path, "validation_embeddings.pt")
+    )
+    print(f"💾 Embedding di validazione salvati in: {save_path}/validation_embeddings.pt")
+
+
 def train():
-    # Carica dataset e modello
     dataset = get_datasets()
     base_model = get_model().to(DEVICE)
 
-    # CONFIGURA LORA
     peft_config = LoraConfig(
         task_type=TaskType.SEQ_CLS,
         inference_mode=False,
@@ -32,9 +58,8 @@ def train():
     )
 
     model = get_peft_model(base_model, peft_config)
-    model.print_trainable_parameters()  # per controllare quanti parametri si addestrano
+    model.print_trainable_parameters()
 
-    # DataLoader
     train_loader = DataLoader(
         dataset["train"],
         batch_size=BATCH_SIZE,
@@ -51,17 +76,13 @@ def train():
         collate_fn=default_data_collator
     )
 
-    # Ottimizzatore (aggiorna SOLO parametri LoRA + classifier)
     optimizer = AdamW(
         filter(lambda p: p.requires_grad, model.parameters()),
         lr=LEARNING_RATE
     )
 
-    # Mixed precision CUDA
     use_amp = True
     scaler = torch.cuda.amp.GradScaler() if use_amp else None
-
-    from sklearn.metrics import accuracy_score, f1_score  # <-- aggiungi all'inizio del file se non già presente
 
     for epoch in range(EPOCHS):
         start = time.time()
@@ -93,7 +114,6 @@ def train():
         avg_loss = total_loss / len(train_loader)
         print(f"\nEpoch {epoch+1} — Avg Train Loss: {avg_loss:.4f} — Time: {epoch_time:.1f}s")
 
-        # 🔍 VALIDATION
         model.eval()
         all_preds, all_labels = [], []
         with torch.no_grad():
@@ -115,24 +135,25 @@ def train():
             print(f"✔️  LoRA adapter (epoch {epoch+1}) salvato in: {adapter_dir_epoch}")
             save_to_hf(adapter_dir_epoch, repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME}-{DATASET_NAME}-epoch-{epoch+1}")
 
-
-    # Salvataggio del solo LoRA adapter finale
+    # Save final adapter
     os.makedirs(SAVE_DIR, exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     adapter_dir_final = os.path.join(SAVE_DIR, f"{MODEL_NAME}-{DATASET_NAME}_lora_adapter_{ts}")
     os.makedirs(adapter_dir_final, exist_ok=True)
-
     model.save_pretrained(adapter_dir_final)
     print(f"✔️  LoRA adapter finale salvato in: {adapter_dir_final}")
 
-    # Salvataggio opzionale anche del modello intero come .pth
+    # Save full model weights
     pth_name = f"{MODEL_NAME}-{DATASET_NAME}_cross_encoder_qqp_{ts}.pth"
     pth_path = os.path.join(SAVE_DIR, pth_name)
     torch.save(model.state_dict(), pth_path)
     print(f"✔️ Modello cross‑encoder salvato in: {pth_path}")
 
-    # Upload su Hugging Face Hub dell'adapter finale
+    # Upload final adapter
     save_to_hf(adapter_dir_final, repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME}-{DATASET_NAME}-final")
+
+    # ⏬ Salva embeddings per l'ensemble
+    generate_embeddings(model, val_loader, save_path=adapter_dir_final)
 
 
 if __name__ == "__main__":
