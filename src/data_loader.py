@@ -36,20 +36,34 @@ def get_datasets(
         df_temp, test_size=2/3, random_state=42, stratify=df_temp["label"]
     )
 
-    # Rimozione duplicati da validation e test rispetto al train
-    train_sentences = set(df_train["Sentence_1"]).union(set(df_train["Sentence_2"]))
-    def remove_duplicates(df_split, split_name):
-        mask = ~(
-            df_split["Sentence_1"].isin(train_sentences) |
-            df_split["Sentence_2"].isin(train_sentences)
-        )
-        removed = (~mask).sum()
-        if removed > 0:
-            print(f"[INFO] Rimosse {removed} righe duplicate da {split_name}")
-        return df_split[mask]
+    # Rimozione overlap tra split
+    def get_sentences(df):
+        return set(df["Sentence_1"]).union(set(df["Sentence_2"]))
 
-    df_val = remove_duplicates(df_val, "validation")
-    df_test = remove_duplicates(df_test, "test")
+    # Rimuovi da validation tutte le righe che contengono frasi già nel train
+    train_sentences = get_sentences(df_train)
+    mask_val = ~(
+        df_val["Sentence_1"].isin(train_sentences) |
+        df_val["Sentence_2"].isin(train_sentences)
+    )
+    removed_val = (~mask_val).sum()
+    if removed_val > 0:
+        print(f"[INFO] Rimosse {removed_val} righe da validation per overlap con train")
+    df_val = df_val[mask_val]
+
+    # Aggiorna set frasi validation
+    val_sentences = get_sentences(df_val)
+    all_train_val_sentences = train_sentences.union(val_sentences)
+
+    # Rimuovi da test tutte le righe che contengono frasi già in train o validation
+    mask_test = ~(
+        df_test["Sentence_1"].isin(all_train_val_sentences) |
+        df_test["Sentence_2"].isin(all_train_val_sentences)
+    )
+    removed_test = (~mask_test).sum()
+    if removed_test > 0:
+        print(f"[INFO] Rimosse {removed_test} righe da test per overlap con train/validation")
+    df_test = df_test[mask_test]
 
     # Ricampionamento se necessario (soglia: almeno 90% della dimensione desiderata)
     desired_val = int(0.10 * len(df))
@@ -57,12 +71,22 @@ def get_datasets(
     if len(df_val) < 0.9 * desired_val:
         print(f"[INFO] Ricampionamento validation: {len(df_val)} < 90% di {desired_val}")
         remaining = df_temp.drop(df_val.index)
-        extra = remaining.sample(n=desired_val - len(df_val), random_state=42, replace=False)
+        extra, _ = train_test_split(
+            remaining,
+            train_size=desired_val - len(df_val),
+            stratify=remaining["label"],
+            random_state=42
+        )
         df_val = pd.concat([df_val, extra]).drop_duplicates().reset_index(drop=True)
     if len(df_test) < 0.9 * desired_test:
         print(f"[INFO] Ricampionamento test: {len(df_test)} < 90% di {desired_test}")
         remaining = df_temp.drop(df_test.index)
-        extra = remaining.sample(n=desired_test - len(df_test), random_state=42, replace=False)
+        extra, _ = train_test_split(
+            remaining,
+            train_size=desired_test - len(df_test),
+            stratify=remaining["label"],
+            random_state=42
+        )
         df_test = pd.concat([df_test, extra]).drop_duplicates().reset_index(drop=True)
 
     # Controllo duplicati tra split
