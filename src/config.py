@@ -1,8 +1,9 @@
 MODEL_NAME = "roberta-base"
-DATASET_NAME = "qqp"
+DATASET_NAME = "MRPC"
 MAX_LENGTH = 64
 BATCH_SIZE = 32
 LEARNING_RATE = 3e-5
 EPOCHS = 5
 DEVICE = "cuda"
 SAVE_DIR = "outputs/"
+SEED = 42
