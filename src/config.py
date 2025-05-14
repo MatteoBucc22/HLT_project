@@ -1,28 +1,28 @@
 # config.py
 
-MODEL_NAME   = "roberta-base"
-DATASET_NAME = "mrpc"
+MODEL_NAME      = "roberta-base"
+DATASET_NAME    = "mrpc"
 
-# Tokenization / dataloader
-MAX_LENGTH   = 64
-BATCH_SIZE   = 32
+# Tokenization / DataLoader
+MAX_LENGTH      = 64
+BATCH_SIZE      = 32
 
 # Training
-LEARNING_RATE   = 2e-5           # leggermente più basso per stabilità
-WEIGHT_DECAY    = 0.01           # per regolarizzare
-EPOCHS          = 6              # puoi spingere fino a 6–8 con early stopping
-WARMUP_RATIO    = 0.1            # frazione di passi per warm-up
-LR_SCHEDULER    = "linear"       # oppure "linear", "step"
-WARMUP_STEPS    = None           # se None, calcolato come WARMUP_RATIO * total_steps
+LEARNING_RATE   = 2e-5
+WEIGHT_DECAY    = 0.01
 
-# Dropout
-HIDDEN_DROPOUT  = 0.1            # aumenta leggermente il dropout interno
-LORA_DROPOUT    = 0.05          # se usi LoRA
+EPOCHS          = 6
+WARMUP_RATIO    = 0.1       # frazione di total_steps per warm-up
+WARMUP_STEPS    = None      # se None, calcolato da WARMUP_RATIO
+LR_SCHEDULER    = "linear"  # "linear", "cosine", "step"
+LOGGING_STEPS   = 50
 
-# Sperimentazione
+# Dropout interno di RoBERTa
+HIDDEN_DROPOUT  = 0.1
+
+# Misc
 SEED            = 42
-DEVICE          = "cuda"
+DEVICE          = "cuda"    # o "cpu"
 
-# Output / logging
+# Outputs
 SAVE_DIR        = "outputs/"
-LOGGING_STEPS   = 50             # per stampare loss / lr ogni n batch

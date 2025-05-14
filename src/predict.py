@@ -1,64 +1,64 @@
+# predict.py
 import os
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 import torch
 from transformers import AutoTokenizer
-from peft import PeftModel
 from model import get_model
 from config import DEVICE, MODEL_NAME
 
-def predict(sentence1: str, sentence2: str):
-    """Restituisce (pred, conf) dove pred è 1 se parafrasi, 0 altrimenti, 
-    e conf è la probabilità associata."""
-    # 1) tokenizer
+def predict(sentence1: str, sentence2: str, checkpoint_path: str):
+    """
+    Restituisce (pred, conf) dove pred è 1 se parafrasi, 0 altrimenti,
+    e conf è la probabilità associata.
+    """
+    # tokenizer
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
-    # 2) modello base + LoRA adapter
-    base_model = get_model()
-    model = PeftModel.from_pretrained(base_model, "outputs/lora_adapter")
-    model.to(DEVICE)
-    model.eval()
+    # modello + caricamento weights
+    model = get_model()
+    state = torch.load(checkpoint_path, map_location=DEVICE)
+    model.load_state_dict(state)
+    model.to(DEVICE).eval()
 
-    # 3) tokenizzazione
+    # inferenza
     inputs = tokenizer(
         sentence1,
         sentence2,
         return_tensors="pt",
-        padding=True,
+        padding="max_length",
         truncation=True,
         max_length=128
     ).to(DEVICE)
 
-    # 4) inferenza
     with torch.no_grad():
         outputs = model(**inputs)
         probs = torch.softmax(outputs.logits, dim=1)[0]
-        # scelgo classe con probabilità maggiore
         pred = int(probs[1] > probs[0])
         conf = probs[pred].item()
 
     return pred, conf
 
-def test_pair(sentence1: str, sentence2: str, is_para: int):
-    """Stampa frase, ground truth e predizione con confidenza."""
-    pred, conf = predict(sentence1, sentence2)
-    label_str = "PARAFRASI" if is_para else "NON‑PARAFRASI"
-    pred_str  = "PARAFRASI" if pred   else "NON‑PARAFRASI"
 
-    print(f"› Frase A: {sentence1!r}")
-    print(f"› Frase B: {sentence2!r}\n")
-    print(f"=> Ground truth: {label_str}")
-    print(f"=> Model       : {pred_str} (conf {conf:.2%})\n")
+def test_pair(sentence1: str, sentence2: str, is_para: int, checkpoint_path: str):
+    pred, conf = predict(sentence1, sentence2, checkpoint_path)
+    gt = "PARAFRASI" if is_para else "NON-PARAFRASI"
+    pr = "PARAFRASI" if pred else "NON-PARAFRASI"
+    print(f"A: {sentence1!r}\nB: {sentence2!r}")
+    print(f"GT: {gt} — Pred: {pr} (conf {conf:.2%})\n")
+
 
 if __name__ == "__main__":
-    # Esempi di test
+    ckpt = "outputs/roberta-base-mrpc-full_YYYYMMDD_HHMMSS.pth"  # sostituisci con il tuo .pth
     test_pair(
         "How do I cook rice?",
         "Best way to cook rice?",
-        is_para=1
+        is_para=1,
+        checkpoint_path=ckpt
     )
     test_pair(
         "How do I cook rice?",
         "How old are you?",
-        is_para=0
+        is_para=0,
+        checkpoint_path=ckpt
     )
