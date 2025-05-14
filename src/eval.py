@@ -5,7 +5,11 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import argparse
 import torch
 from torch.utils.data import DataLoader
-from transformers import AutoTokenizer, default_data_collator
+from transformers import (
+    AutoTokenizer,
+    default_data_collator,
+    AutoModelForSequenceClassification
+)
 from data_loader import get_datasets
 from model import get_model
 from config import DEVICE, BATCH_SIZE, MODEL_NAME
@@ -42,7 +46,7 @@ def main():
         "--checkpoint",
         type=str,
         required=True,
-        help="Path al file .pth del modello fine-tuned"
+        help="Path al file .pth del modello o alla cartella contenente model.safetensors/config.json"
     )
     parser.add_argument(
         "--batch_size",
@@ -51,26 +55,36 @@ def main():
     )
     args = parser.parse_args()
 
-    # tokenizer + dataset
+    # prepara test set
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     ds = get_datasets()
     test_loader = DataLoader(
-        ds["validation"],
+        ds["validation"],  # o 'test' se preferisci
         batch_size=args.batch_size,
         shuffle=False,
         collate_fn=default_data_collator
     )
-    print(f"✔️  Caricati {len(ds['validation'])} esempi di test")
+    print(f"✔️  Caricati {len(ds['validation'])} esempi di valutazione")
 
-    # modello base + caricamento weights
-    model = get_model()
-    if args.checkpoint.endswith(".pth"):
+    # carica il modello
+    if os.path.isdir(args.checkpoint):
+        # cartella HuggingFace-style (model.safetensors, config.json, etc.)
+        print("⚙️  Carico modello da directory:", args.checkpoint)
+        model = AutoModelForSequenceClassification.from_pretrained(
+            args.checkpoint,
+            device_map={"": DEVICE} if DEVICE != "cpu" else None,
+            local_files_only=True
+        )
+    elif args.checkpoint.endswith(".pth"):
+        # file state_dict
+        print("⚙️  Carico state_dict da file:", args.checkpoint)
+        model = get_model()
         state = torch.load(args.checkpoint, map_location=DEVICE)
         model.load_state_dict(state)
-        print("⚙️  Caricato state_dict da:", args.checkpoint)
     else:
-        raise ValueError("Il checkpoint deve essere un file .pth")
+        raise ValueError("Checkpoint non riconosciuto: fornisci un .pth o una directory di modello HF")
 
+    model.to(DEVICE)
     print("✔️  Modello pronto, inizio evaluation…")
     evaluate(model, test_loader)
 
