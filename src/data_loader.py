@@ -6,7 +6,7 @@ from transformers import AutoTokenizer
 from sentence_transformers import InputExample
 from config import MODEL_NAME, DATASET_NAME, MAX_LENGTH
 
-def get_dataset():
+def get_datasets():
     ds = load_dataset("glue", DATASET_NAME)
     print("DATASET SPLITS:", ds.keys())
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
@@ -46,4 +46,4 @@ def get_dataset():
     return tokenized
 
 if __name__ == '__main__':
-    get_dataset()
+    get_datasets()
