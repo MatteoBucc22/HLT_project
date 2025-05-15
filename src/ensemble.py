@@ -1,72 +1,37 @@
 import torch
-from torch.utils.data import DataLoader
-from transformers import AutoModelForSequenceClassification
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
-from data_loader import get_datasets
-from config import DEVICE, BATCH_SIZE, DATASET_NAME
+import numpy as np
+from sklearn.metrics import accuracy_score, f1_score
+from datasets import load_dataset
+from transformers import AutoTokenizer
+import os
 
-def load_model(repo_id):
-    print(f"Loading model from {repo_id}")
-    model = AutoModelForSequenceClassification.from_pretrained(repo_id).to(DEVICE)
-    model.eval()
-    return model
+# Percorsi dei due file di embedding (entrambi su QQP)
+EMBEDDING_PATH_1 = "MatteoBucc/passphrase-identification-roberta-base-qqp-embeddings-20250515_135729"
+EMBEDDING_PATH_2 = "MatteoBucc/passphrase-identification-sentence-transformers-all-MiniLM-L6-v2-qqp-embeddings-20250515_141045"
 
-def ensemble_predict(model1, model2, dataloader, weight1=0.5, weight2=0.5):
-    all_preds = []
-    all_labels = []
+# Scarica automaticamente da Hugging Face
+embedding_1 = torch.load(f"https://huggingface.co/{EMBEDDING_PATH_1}/resolve/main/validation_embeddings.pt", map_location="cpu")
+embedding_2 = torch.load(f"https://huggingface.co/{EMBEDDING_PATH_2}/resolve/main/validation_embeddings.pt", map_location="cpu")
 
-    with torch.no_grad():
-        for batch in dataloader:
-            labels = batch["labels"].to(DEVICE)
-            inputs = {k: v.to(DEVICE) for k, v in batch.items() if k != "labels"}
+# Assicura che le dimensioni corrispondano
+assert embedding_1["embeddings"].shape[0] == embedding_2["embeddings"].shape[0], "Dimension mismatch"
+assert torch.equal(embedding_1["labels"], embedding_2["labels"]), "Labels mismatch"
 
-            outputs1 = model1(**inputs)
-            outputs2 = model2(**inputs)
+# Estrai embeddings e normalizzali (opzionale ma utile per cosine similarity)
+emb1 = torch.nn.functional.normalize(embedding_1["embeddings"], dim=1)
+emb2 = torch.nn.functional.normalize(embedding_2["embeddings"], dim=1)
 
-            # Weighted average logits
-            logits_ensemble = weight1 * outputs1.logits + weight2 * outputs2.logits
-            preds = torch.argmax(logits_ensemble, dim=1)
+# Ensemble: media semplice
+ensemble_embeddings = (emb1 + emb2) / 2
 
-            all_preds.extend(preds.cpu().tolist())
-            all_labels.extend(labels.cpu().tolist())
+# Classificatore: soglia su cosine similarity (paraphrase detection)
+cosine_similarities = torch.nn.functional.cosine_similarity(ensemble_embeddings, torch.zeros_like(ensemble_embeddings))
+threshold = 0.0  # Puoi ottimizzare questa soglia
+preds = (cosine_similarities > threshold).long()
 
-    return all_preds, all_labels
+# Valutazione
+labels = embedding_1["labels"]
+acc = accuracy_score(labels, preds)
+f1 = f1_score(labels, preds)
 
-def save_predictions(preds, labels, file_path="ensemble_predictions.txt"):
-    with open(file_path, "w") as f:
-        f.write("Prediction\tLabel\n")
-        for p, l in zip(preds, labels):
-            f.write(f"{p}\t{l}\n")
-    print(f"Predizioni salvate in {file_path}")
-
-def main():
-    model1_repo = "MatteoBucc/passphrase-identification-roberta-base-qqp-embeddings-20250515_135729"
-    model2_repo = "MatteoBucc/passphrase-identification-roberta-base-mrpc-best"
-
-    model1 = load_model(model1_repo)
-    model2 = load_model(model2_repo)
-
-    dataset = get_datasets()
-    val_loader = DataLoader(dataset["validation"], batch_size=BATCH_SIZE, shuffle=False, pin_memory=True)
-
-    # Cambia i pesi per dare più importanza a un modello (deve sommare a 1)
-    weight1 = 0.7  
-    weight2 = 0.3
-
-    preds, labels = ensemble_predict(model1, model2, val_loader, weight1=weight1, weight2=weight2)
-
-    acc = accuracy_score(labels, preds)
-    f1 = f1_score(labels, preds)
-    precision = precision_score(labels, preds)
-    recall = recall_score(labels, preds)
-
-    print(f"Ensemble validation results:")
-    print(f"Accuracy: {acc:.4f}")
-    print(f"F1 Score: {f1:.4f}")
-    print(f"Precision: {precision:.4f}")
-    print(f"Recall: {recall:.4f}")
-
-    save_predictions(preds, labels)
-
-if __name__ == "__main__":
-    main()
+print(f"✅ ENSEMBLE QQP — Accuracy: {acc:.4f}, F1 Score: {f1:.4f}")
