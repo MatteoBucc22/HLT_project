@@ -13,6 +13,8 @@ from transformers import (
 from tqdm.auto import tqdm
 import time
 import datetime
+from sklearn.metrics import accuracy_score, f1_score
+import numpy as np
 
 from peft import LoraConfig, get_peft_model, TaskType
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
@@ -23,6 +25,37 @@ from model import get_model, MODEL_NAME
 from config import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR, DATASET_NAME, WEIGHT_DECAY, WARMUP_STEPS, PATIENCE, GRAD_CLIP_NORM
 from hf_utils import save_to_hf
 
+
+def generate_embeddings(model, dataloader, save_path):
+    model.eval()
+    all_embeddings = []
+    all_labels = []
+
+    with torch.no_grad():
+        for batch in tqdm(dataloader, desc="🔍 Generating Embeddings"):
+            labels = batch["labels"]
+            batch = {k: v.to(DEVICE) for k, v in batch.items()}
+            outputs = model.base_model(**batch, output_hidden_states=True, return_dict=True)
+
+            # Usa il [CLS] token embedding dall'ultimo hidden state
+            cls_embeddings = outputs.hidden_states[-1][:, 0, :]  # [batch_size, hidden_dim]
+            all_embeddings.append(cls_embeddings.cpu())
+            all_labels.extend(labels)
+
+    all_embeddings = torch.cat(all_embeddings)
+    all_labels = torch.tensor(all_labels)
+
+    os.makedirs(save_path, exist_ok=True)
+    torch.save(
+        {"embeddings": all_embeddings, "labels": all_labels},
+        os.path.join(save_path, "validation_embeddings.pt")
+    )
+    print(f"💾 Embedding di validazione salvati in: {save_path}/validation_embeddings.pt")
+
+
+def train():
+    dataset = get_datasets()
+    base_model = get_model().to(DEVICE)
 # -----------------------------
 #  Setting seeds for reproducibility
 # -----------------------------
@@ -111,40 +144,35 @@ for epoch in range(1, EPOCHS + 1):
         batch = {k: v.to(DEVICE) for k, v in batch.items()}
         optimizer.zero_grad()
 
-        outputs = model(**batch)
-        loss = outputs.loss
-        # Ensure scalar loss (for DataParallel compatibility)
-        if loss.dim() > 0:
-            loss = loss.mean()
-        loss.backward()
+            if use_amp:
+                with torch.cuda.amp.autocast():
+                    outputs = model(**batch)
+                    loss = outputs.loss
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                outputs = model(**batch)
+                loss = outputs.loss
+                loss.backward()
+                optimizer.step()
 
-        # Gradient clipping
-        torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP_NORM)
+            total_loss += loss.item()
+            loop.set_postfix(loss=total_loss / (batch_idx + 1))
 
-        optimizer.step()
-        scheduler.step()
+        epoch_time = time.time() - start
+        avg_loss = total_loss / len(train_loader)
+        print(f"\nEpoch {epoch+1} — Avg Train Loss: {avg_loss:.4f} — Time: {epoch_time:.1f}s")
 
-        train_loss += loss.item()
-        loop.set_postfix(loss=train_loss / (batch_idx + 1), lr=scheduler.get_last_lr()[0])
-
-    avg_train_loss = train_loss / len(train_loader)
-    epoch_time = time.time() - start_time
-    print(f"📈 Epoch {epoch} — Train Loss: {avg_train_loss:.4f} — Time: {epoch_time:.1f}s")
-    writer.add_scalar('Loss/train', avg_train_loss, epoch)
-    writer.add_scalar('LR', scheduler.get_last_lr()[0], epoch)
-
-    # -------------------------
-    #  Validation
-    # -------------------------
-    model.eval()
-    val_preds, val_labels = [], []
-    with torch.no_grad():
-        for batch in val_loader:
-            batch = {k: v.to(DEVICE) for k, v in batch.items()}
-            outputs = model(**batch)
-            preds = outputs.logits.argmax(dim=1)
-            val_preds.extend(preds.cpu().tolist())
-            val_labels.extend(batch['labels'].cpu().tolist())
+        model.eval()
+        all_preds, all_labels = [], []
+        with torch.no_grad():
+            for batch in val_loader:
+                batch = {k: v.to(DEVICE) for k, v in batch.items()}
+                outputs = model(**batch)
+                preds = outputs.logits.argmax(dim=1)
+                all_preds.extend(preds.cpu().tolist())
+                all_labels.extend(batch["labels"].cpu().tolist())
 
     acc = accuracy_score(val_labels, val_preds)
     f1 = f1_score(val_labels, val_preds)
@@ -195,4 +223,8 @@ print(f"✔️ Final LoRA adapter and full model saved at {final_dir}")
 save_to_hf(final_dir,
            repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME.replace('/', '-')}-{DATASET_NAME}-final")
 
+    # ⏬ Salva embeddings per l'ensemble
+    generate_embeddings(model, val_loader, save_path=adapter_dir_final)
+
 writer.close()
+
