@@ -1,20 +1,26 @@
-
-DEVICE = "cuda"
-BATCH_SIZE = 32
-LEARNING_RATE = 1e-5
-EPOCHS = 5
-SAVE_DIR = "outputs/"
-DATASET_NAME = "qqp"
+DATASET_NAME = "mrpc"
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-MAX_LENGTH = 64
 
-WEIGHT_DECAY = 0.01         # weight decay for AdamW
-WARMUP_STEPS = 100          # number of warmup steps for scheduler
-PATIENCE = 2                # epochs to wait for improvement before early stopping
-GRAD_CLIP_NORM = 1.0        # max norm for gradient clipping
+# Tokenization / DataLoader
+MAX_LENGTH      = 64
+BATCH_SIZE      = 32
 
-# Logging
-LOG_DIR = "runs/"
+# Training
+LEARNING_RATE   = 2e-5
+WEIGHT_DECAY    = 0.01
 
-# Seed for reproducibility
-SEED = 42
+EPOCHS          = 6
+WARMUP_RATIO    = 0.1       # frazione di total_steps per warm-up
+WARMUP_STEPS    = None      # se None, calcolato da WARMUP_RATIO
+LR_SCHEDULER    = "linear"  # "linear", "cosine", "step"
+LOGGING_STEPS   = 50
+
+# Dropout interno di RoBERTa
+HIDDEN_DROPOUT  = 0.1
+
+# Misc
+SEED            = 42
+DEVICE          = "cuda"    # o "cpu"
+
+# Outputs
+SAVE_DIR        = "outputs/"
