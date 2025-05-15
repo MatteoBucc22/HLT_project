@@ -151,7 +151,7 @@ def train():
     print(f"✔️  LoRA adapter finale salvato in: {adapter_dir_final}")
 
     # Save full model weights
-    pth_name = f"{MODEL_NAME}-{DATASET_NAME}_cross_encoder_{ts}.pth"
+    pth_name = f"{MODEL_NAME.replace('/', '-')}-{DATASET_NAME}_cross_encoder_{ts}.pth"
     pth_path = os.path.join(SAVE_DIR, pth_name)
     torch.save(model.state_dict(), pth_path)
     print(f"✔️ Modello cross‑encoder salvato in: {pth_path}")
