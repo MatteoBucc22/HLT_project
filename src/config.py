@@ -1,8 +1,12 @@
-MODEL_NAME = "roberta-base"
-DATASET_NAME = "qqp"
-MAX_LENGTH = 64
-BATCH_SIZE = 32
-LEARNING_RATE = 3e-5
-EPOCHS = 5
-DEVICE = "cuda"
-SAVE_DIR = "outputs/"
+# config.py
+MODEL_NAME     = "roberta-base"
+DATASET_NAME   = "qqp"
+MAX_LENGTH     = 64
+BATCH_SIZE     = 32
+LEARNING_RATE  = 3e-5
+EPOCHS         = 5
+DEVICE         = "cuda"
+SAVE_DIR       = "outputs/siamese_sbert"
+EVAL_STEPS     = 1000
+WARMUP_RATIO   = 0.1
+HUB_MODEL_ID   = ""  # change with il tuo repo HF

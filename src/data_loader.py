@@ -1,38 +1,30 @@
+# src/data_loader.py
 import os
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 from datasets import load_dataset
 from transformers import AutoTokenizer
-from config import MODEL_NAME, MAX_LENGTH, DATASET_NAME
+from sentence_transformers import InputExample
+from config import MODEL_NAME, DATASET_NAME, MAX_LENGTH
 
-def get_datasets():
-    # Carica il dataset Quora con le suddivisioni predefinite
+def get_examples():
     ds = load_dataset("glue", DATASET_NAME)
-    print("DATASET CARICATO:", ds.keys())
+    print("DATASET SPLITS:", ds.keys())
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
-    def preprocess(examples):
-        # Access question texts directly from "question1" and "question2"
-        q1 = examples["question1"]
-        q2 = examples["question2"]
+    def create_examples(split):
+        examples = []
+        for item in ds[split]:
+            q1 = item["question1"]
+            q2 = item["question2"]
+            label = float(item["label"])  
+            examples.append(InputExample(texts=[q1, q2], label=label))
+        return examples
 
-        tok = tokenizer(
-            q1,
-            q2,
-            padding="max_length",
-            truncation=True,
-            max_length=MAX_LENGTH,
-        )
-        tok["labels"] = examples["label"]  # Use "label" for is_duplicate
-        return tok
-
-    # Applica la tokenizzazione a tutte le suddivisioni
-    tokenized = ds.map(preprocess, batched=True, remove_columns=["idx", "question1", "question2"])
-    tokenized.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
-    labels = ds["train"]["label"]
-    print("VALORI UNICI DELLE ETICHETTE:", set(labels))
-    return tokenized
+    train_examples = create_examples("train")
+    dev_examples   = create_examples("validation")
+    print(f"Loaded {len(train_examples)} train and {len(dev_examples)} dev examples.")
+    return train_examples, dev_examples
 
 if __name__ == '__main__':
-    dataset = get_datasets()
-    print(dataset)
+    get_examples()

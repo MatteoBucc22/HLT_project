@@ -1,13 +1,9 @@
+# src/model.py
 import os
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-from transformers import AutoModelForSequenceClassification
-from config import MODEL_NAME
-import torch
+from sentence_transformers import SentenceTransformer
+from config import MODEL_NAME, DEVICE
 
-def get_model():
-    model = AutoModelForSequenceClassification.from_pretrained(
-        MODEL_NAME,
-        num_labels=2
-    )
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    return model.to(device)
+def get_siamese_model():
+    # Carica SBERT come backbone siamese
+    model = SentenceTransformer(MODEL_NAME, device=DEVICE)
+    return model
