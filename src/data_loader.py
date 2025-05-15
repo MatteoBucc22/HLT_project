@@ -12,19 +12,40 @@ def get_examples():
     print("DATASET SPLITS:", ds.keys())
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
-    def create_examples(split):
-        examples = []
-        for item in ds[split]:
-            q1 = item["question1"]
-            q2 = item["question2"]
-            label = float(item["label"])  
-            examples.append(InputExample(texts=[q1, q2], label=label))
-        return examples
+    # Controllo per duplicati tra train e test
+    def normalize_pair(q1, q2):
+        return tuple(sorted((q1.strip().lower(), q2.strip().lower())))
 
-    train_examples = create_examples("train")
-    dev_examples   = create_examples("validation")
-    print(f"Loaded {len(train_examples)} train and {len(dev_examples)} dev examples.")
-    return train_examples, dev_examples
+    train_pairs = set(
+        normalize_pair(q1, q2)
+        for q1, q2 in zip(ds["validation"]["question1"], ds["train"]["question2"])
+    )
+    test_pairs = set(
+        normalize_pair(q1, q2)
+        for q1, q2 in zip(ds["validation"]["question1"], ds["test"]["question2"])
+    )
+
+    duplicates = train_pairs & test_pairs
+    print(f"DUPLICATI TRA TRAIN E VALIDATION: {len(duplicates)}")
+
+    def preprocess(examples):
+        q1 = examples["question1"]
+        q2 = examples["question2"]
+        tok = tokenizer(
+            q1,
+            q2,
+            padding="max_length",
+            truncation=True,
+            max_length=MAX_LENGTH,
+        )
+        tok["labels"] = examples["label"]
+        return tok
+
+    tokenized = ds.map(preprocess, batched=True, remove_columns=["idx", "question1", "question2"])
+    tokenized.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
+    labels = ds["train"]["label"]
+    print("VALORI UNICI DELLE ETICHETTE:", set(labels))
+    return tokenized
 
 if __name__ == '__main__':
     get_examples()
