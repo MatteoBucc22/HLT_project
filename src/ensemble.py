@@ -52,8 +52,8 @@ pos2, neg2 = compute_centroids(emb2, labels)
 
 # Calcola similarità e predizioni combinate
 # Pesi, se vuoi dare maggiore importanza a uno dei modelli
-w1 = 0.5
-w2 = 0.5
+w1 = 0.8
+w2 = 0.2
 
 sims_pos = w1 * F.cosine_similarity(emb1, pos1.unsqueeze(0)) \
          + w2 * F.cosine_similarity(emb2, pos2.unsqueeze(0))
