@@ -10,7 +10,9 @@ from peft import PeftModel
 from data_loader import get_datasets
 from model import get_model
 from config import DEVICE, BATCH_SIZE, MODEL_NAME
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.metrics import accuracy_score, f1_score, confusion_matrix, ConfusionMatrixDisplay
+
+import matplotlib.pyplot as plt  # per visualizzazione
 
 def evaluate(model, dataloader):
 
@@ -28,8 +30,24 @@ def evaluate(model, dataloader):
             preds = outputs.logits.argmax(dim=1)
             all_preds.extend(preds.cpu().tolist())
             all_labels.extend(batch["labels"].cpu().tolist())
-    print(f"Validation Accuracy: {accuracy_score(all_labels, all_preds):.4f} | "
-          f"F1 Score: {f1_score(all_labels, all_preds):.4f}")
+
+    acc = accuracy_score(all_labels, all_preds)
+    f1 = f1_score(all_labels, all_preds)
+    cm = confusion_matrix(all_labels, all_preds)
+
+    print(f"✅ Validation Accuracy: {acc:.4f} | F1 Score: {f1:.4f}")
+    print("📊 Confusion Matrix:")
+    print(cm)
+
+    # Visualizzazione grafica opzionale
+    try:
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm)
+        disp.plot(cmap=plt.cm.Blues)
+        plt.title("Confusion Matrix")
+        plt.show()
+    except Exception as e:
+        print("⚠️ Impossibile visualizzare la matrice di confusione:", e)
+
 
 def main():
     parser = argparse.ArgumentParser()
