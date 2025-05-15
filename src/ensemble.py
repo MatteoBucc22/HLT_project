@@ -4,9 +4,8 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, f1_score
 from typing import List
-import joblib  # per salvare il modello
+import joblib
 import argparse
-
 
 def load_embeddings(paths: List[str], split="validation"):
     """Carica embeddings (validation/test) da più modelli"""
@@ -49,6 +48,17 @@ def save_classifier(clf, path):
     print(f"💾 Classificatore salvato in: {model_path}")
 
 
+def download_from_huggingface(repo_ids: List[str]):
+    from huggingface_hub import snapshot_download
+
+    local_paths = []
+    for repo_id in repo_ids:
+        print(f"⬇️ Scarico da Hugging Face: {repo_id}")
+        path = snapshot_download(repo_id=repo_id, allow_patterns="*embeddings.pt")
+        local_paths.append(path)
+    return local_paths
+
+
 def run_ensemble(
     embedding_dirs: List[str],
     split: str = "validation",
@@ -84,11 +94,8 @@ def run_ensemble(
             f.write(f"Split: {split}\nStrategy: {strategy}\nAccuracy: {acc:.4f}\nF1: {f1:.4f}\n")
 
         if upload_to_hf:
-            from huggingface_hub import HfApi, login, create_repo, upload_folder
-
-            # Assicurati che l'autenticazione sia fatta
-            login()  # oppure usa login(token="hf_xxx")
-
+            from huggingface_hub import login, create_repo, upload_folder
+            login()  # Puoi usare login(token="hf_xxx") se vuoi autenticarti automaticamente
             create_repo(hf_repo_id, exist_ok=True)
             upload_folder(
                 repo_id=hf_repo_id,
@@ -101,7 +108,8 @@ def run_ensemble(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Esegui ensemble su embedding salvati")
-    parser.add_argument("--paths", nargs="+", required=True, help="Cartelle contenenti gli embedding (.pt)")
+    parser.add_argument("--paths", nargs="+", help="Percorsi locali contenenti gli embedding (.pt)")
+    parser.add_argument("--hf_paths", nargs="+", help="Repo Hugging Face contenenti gli embedding (.pt)")
     parser.add_argument("--split", default="validation", choices=["validation", "test"], help="Split da usare")
     parser.add_argument("--strategy", default="mean", choices=["mean", "concat"], help="Strategia ensemble")
     parser.add_argument("--save_dir", default=None, help="Cartella dove salvare il classificatore")
@@ -109,6 +117,12 @@ if __name__ == "__main__":
     parser.add_argument("--hf_repo_id", default=None, help="Repo Hugging Face (es. username/nome_modello)")
 
     args = parser.parse_args()
+
+    if not args.paths and not args.hf_paths:
+        raise ValueError("Devi specificare almeno uno tra --paths o --hf_paths")
+
+    if args.hf_paths:
+        args.paths = download_from_huggingface(args.hf_paths)
 
     run_ensemble(
         embedding_dirs=args.paths,
@@ -118,14 +132,3 @@ if __name__ == "__main__":
         upload_to_hf=args.upload_to_hf,
         hf_repo_id=args.hf_repo_id
     )
-
-
-#COME USARLO DA TERMINALE:
-
-# python ensemble_runner.py \
-#   --paths saved_models/bert-base/... saved_models/roberta-base/... \
-#   --split test \
-#   --strategy concat \
-#   --save_dir ensemble_outputs/concat_strategy \
-#   --upload_to_hf \
-#   --hf_repo_id MatteoBucc/passphrase-ensemble-concat
