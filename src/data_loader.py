@@ -27,8 +27,8 @@ def get_datasets():
         return tok
 
     # Applica la tokenizzazione a tutte le suddivisioni
-    tokenized = ds.map(preprocess, batched=True, remove_columns=["idx", "question1", "question2"])
-    tokenized.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
+    tokenized = ds.map(preprocess, batched=True, remove_columns=["idx"])
+    tokenized.set_format(type="torch", columns=["question1", "question2", "labels"])
     labels = ds["train"]["label"]
     print("VALORI UNICI DELLE ETICHETTE:", set(labels))
     return tokenized

@@ -14,8 +14,56 @@ from peft import get_peft_config, get_peft_model, LoraConfig, TaskType
 from data_loader import get_datasets
 from model import get_model, MODEL_NAME  # Importa anche MODEL_NAME
 from config import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR, DATASET_NAME
+
+from sklearn.metrics import accuracy_score, f1_score  # <-- aggiungi all'inizio del file se non già presente
+
+from sentence_transformers.losses import ContrastiveLoss
+from sentence_transformers.evaluation import BinaryClassificationEvaluator
 from hf_utils import save_to_hf
 
+
+""" def train2():
+
+    # Format training data
+    train_examples = []
+    for example in dataset['train']:
+        train_examples.append(InputExample(texts=[example['sentence1'], example['sentence2']], label=float(example['label'])))
+
+    train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=4)
+
+    train_loss = ContrastiveLoss(model=model)
+
+    # Format evaluation data
+    sentences1 = []
+    sentences2 = []
+    scores = []
+    for example in dataset['validation']:
+        sentences1.append(example['sentence1'])
+        sentences2.append(example['sentence2'])
+        scores.append(float(example['label']))
+
+    evaluator = BinaryClassificationEvaluator(sentences1, sentences2, scores)
+
+    # Start training
+    model.fit(
+        train_objectives=[(train_dataloader, train_loss)], 
+        evaluator=evaluator,
+        evaluation_steps=500,
+        epochs=1, 
+        warmup_steps=0,
+        output_path='./sentence_transformer/',
+        weight_decay=0.01,
+        optimizer_params={'lr': 0.00004},
+        save_best_model=True,
+        show_progress_bar=True,
+    )
+
+    sentences = ['This is just a random sentence on a friday evenning', 'to test model ability.']
+
+    #Sentences are encoded by calling model.encode()
+    embeddings = model.encode(sentences)
+
+    print(embeddings) """
 
 def train():
     # Carica dataset e modello
@@ -59,11 +107,37 @@ def train():
 
     # Mixed precision CUDA
     use_amp = True
-    scaler = torch.cuda.amp.GradScaler() if use_amp else None
+    scaler = torch.amp.GradScaler('cuda') if use_amp else None
 
-    from sklearn.metrics import accuracy_score, f1_score  # <-- aggiungi all'inizio del file se non già presente
+    train_loss = ContrastiveLoss(model=model)
 
-    for epoch in range(EPOCHS):
+    # Format evaluation data
+    sentences1 = []
+    sentences2 = []
+    scores = []
+    for example in dataset['validation']:
+        #print(example)
+        sentences1.append(example['question1'])
+        sentences2.append(example['question2'])
+        scores.append(float(example['labels']))
+
+    evaluator = BinaryClassificationEvaluator(sentences1, sentences2, scores)
+
+    # Start training
+    model.fit(
+        train_objectives=[(train_loader, train_loss)], 
+        evaluator=evaluator,
+        evaluation_steps=500,
+        epochs=1, 
+        warmup_steps=0,
+        output_path='./sentence_transformer/',
+        weight_decay=0.01,
+        optimizer_params={'lr': 0.00004},
+        save_best_model=True,
+        show_progress_bar=True,
+    )
+
+    """ for epoch in range(EPOCHS):
         start = time.time()
         model.train()
         total_loss = 0.0
@@ -74,7 +148,7 @@ def train():
             optimizer.zero_grad()
 
             if use_amp:
-                with torch.cuda.amp.autocast():
+                with torch.amp.autocast('cuda'):
                     outputs = model(**batch)
                     loss = outputs.loss
                 scaler.scale(loss).backward()
@@ -114,7 +188,7 @@ def train():
             model.save_pretrained(adapter_dir_epoch)
             print(f"✔️  LoRA adapter (epoch {epoch+1}) salvato in: {adapter_dir_epoch}")
             save_to_hf(adapter_dir_epoch, repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME}-{DATASET_NAME}-epoch-{epoch+1}")
-
+ """
 
     # Salvataggio del solo LoRA adapter finale
     os.makedirs(SAVE_DIR, exist_ok=True)

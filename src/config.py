@@ -1,6 +1,7 @@
-MODEL_NAME = "roberta-base"
+MODEL_NAME = "distilroberta-base"
 DATASET_NAME = "qqp"
 MAX_LENGTH = 64
+MAX_SEQ_LENGHT = 128
 BATCH_SIZE = 32
 LEARNING_RATE = 3e-5
 EPOCHS = 5
