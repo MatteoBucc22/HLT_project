@@ -1,42 +1,44 @@
 import torch
 import torch.nn.functional as F
-import numpy as np
 from sklearn.metrics import accuracy_score, f1_score
-import warnings
+import os
 
-# Nasconde il warning di sicurezza di torch.load
-warnings.filterwarnings("ignore", category=FutureWarning)
+# Percorsi agli embeddings
+roberta_path = "MatteoBucc/passphrase-identification-roberta-base-qqp-embeddings-20250515_135729"
+minilm_path = "MatteoBucc/passphrase-identification-sentence-transformers-all-MiniLM-L6-v2-qqp-embeddings-20250515_141045"
 
-# Percorsi locali ai file scaricati
-embedding_file_1 = "roberta_embeddings.pt"
-embedding_file_2 = "minilm_embeddings.pt"
+# Caricamento degli embeddings
+roberta_data = torch.load(torch.hub.download_url_to_file(os.path.join(f"https://huggingface.co/{roberta_path}/resolve/main/validation_embeddings.pt"), "roberta.pt"))
+minilm_data = torch.load(torch.hub.download_url_to_file(os.path.join(f"https://huggingface.co/{minilm_path}/resolve/main/validation_embeddings.pt"), "minilm.pt"))
 
-# Carica gli embeddings (dizionari con 'embeddings' e 'labels')
-embedding_1 = torch.load(embedding_file_1, map_location="cpu")
-embedding_2 = torch.load(embedding_file_2, map_location="cpu")
+# Verifica consistenza
+assert len(roberta_data['labels']) == len(minilm_data['labels']), "I dataset devono avere lo stesso numero di esempi"
 
-# Estrai tensor e label
-embeddings_1 = embedding_1["embeddings"]  # Roberta
-embeddings_2 = embedding_2["embeddings"]  # MiniLM
-labels = embedding_1["labels"]            # Le etichette sono uguali in entrambi
+# Estrai embeddings e label
+emb1 = roberta_data["embeddings"]
+emb2 = minilm_data["embeddings"]
+labels = roberta_data["labels"]
 
-# Calcola logits da cosine similarity
-def cosine_logits(embeddings):
-    sim = F.cosine_similarity(embeddings[:, 0], embeddings[:, 1])
-    return torch.stack([1 - sim, sim], dim=1)  # classe 0 e classe 1
+# Normalizzazione (cosine similarity benefit)
+emb1 = F.normalize(emb1, dim=1)
+emb2 = F.normalize(emb2, dim=1)
 
-logits_1 = cosine_logits(embeddings_1)
-logits_2 = cosine_logits(embeddings_2)
+# Ensemble: media delle embeddings
+ensemble_emb = (emb1 + emb2) / 2
 
-# Ensemble con soft voting
-ensemble_logits = (logits_1 + logits_2) / 2
-preds = ensemble_logits.argmax(dim=1).numpy()
+# Classificatore lineare semplice (k-NN o simile, qui: soglia sulla distanza coseno rispetto a centroide positivo)
+pos_mean = ensemble_emb[labels == 1].mean(dim=0)
+neg_mean = ensemble_emb[labels == 0].mean(dim=0)
+
+# Predizione: maggiore similarità a quale centroide?
+sim_to_pos = F.cosine_similarity(ensemble_emb, pos_mean.unsqueeze(0))
+sim_to_neg = F.cosine_similarity(ensemble_emb, neg_mean.unsqueeze(0))
+preds = (sim_to_pos > sim_to_neg).long()
 
 # Metriche
-labels = np.array(labels)
 acc = accuracy_score(labels, preds)
 f1 = f1_score(labels, preds)
 
-print(f"\n🔎 ENSEMBLE RESULTS (Roberta + MiniLM on QQP):")
+print(f"\n🧪 Ensemble Roberta + MiniLM su QQP")
 print(f"Accuracy: {acc:.4f}")
 print(f"F1 Score: {f1:.4f}")
