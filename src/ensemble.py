@@ -8,16 +8,10 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 # Configurazione dei modelli full su HF
 MODEL_INFOS = {
     "roberta-qqp": {
-        "hf_name": "MatteoBucc/passphrase-identification-roberta-base-qqp-full-20250516_123000",
-    },
-    "roberta-mrpc": {
-        "hf_name": "MatteoBucc/passphrase-identification-roberta-base-mrpc-full-20250515_140000",
+        "hf_name": "MatteoBucc/passphrase-identification-roberta-base-qqp-final",
     },
     "minilm-qqp": {
-        "hf_name": "MatteoBucc/passphrase-identification-all-MiniLM-L6-v2-qqp-full-20250516_111648",
-    },
-    "minilm-mrpc": {
-        "hf_name": "MatteoBucc/passphrase-identification-all-MiniLM-L6-v2-mrpc-full-20250515_150000",
+        "hf_name": "MatteoBucc/sentence-transformers-all-MiniLM-L6-v2-qqp-adapter-epoch-4",
     }
 }
 
