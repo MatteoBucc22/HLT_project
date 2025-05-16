@@ -14,7 +14,7 @@ MODEL_INFOS = {
     },
     "minilm-qqp": {
         "base": "sentence-transformers/all-MiniLM-L6-v2",
-        "adapter": "MatteoBucc/passphrase-identification-all-MiniLM-L6-v2-qqp-final"
+        "adapter": "MatteoBucc/sentence-transformers-all-MiniLM-L6-v2-qqp-adapter-epoch-4"
     }
 }
 
