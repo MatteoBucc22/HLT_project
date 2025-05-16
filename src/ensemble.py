@@ -8,22 +8,12 @@ from sklearn.metrics import accuracy_score, f1_score
 # Configurazione dei modelli su Hugging Face
 MODEL_INFOS = {
     "roberta-qqp": {
-        "hf_name": "username/roberta-qqp-finetuned",
-        "tokenizer": None,
-        "model": None
-    },
-    "roberta-mrpc": {
-        "hf_name": "username/roberta-mrpc-finetuned",
+        "hf_name": "MatteoBucc/passphrase-identification-roberta-base-qqp-final",
         "tokenizer": None,
         "model": None
     },
     "minilm-qqp": {
-        "hf_name": "username/minilm-qqp-finetuned",
-        "tokenizer": None,
-        "model": None
-    },
-    "minilm-mrpc": {
-        "hf_name": "username/minilm-mrpc-finetuned",
+        "hf_name": "MatteoBucc/sentence-transformers-all-MiniLM-L6-v2-qqp-adapter-epoch-4",
         "tokenizer": None,
         "model": None
     }
@@ -32,7 +22,7 @@ MODEL_INFOS = {
 # Caricamento di tokenizers e modelli
 for key, info in MODEL_INFOS.items():
     info["tokenizer"] = AutoTokenizer.from_pretrained(info["hf_name"])
-    info["model"] = AutoModelForSequenceClassification.from_pretrained(info["hf_name"]).eval()
+    info["model"]     = AutoModelForSequenceClassification.from_pretrained(info["hf_name"]).eval()
 
 @torch.no_grad()
 def predict_single(model, tokenizer, sentences):
