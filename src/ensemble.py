@@ -4,25 +4,32 @@ import numpy as np
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from datasets import load_dataset
 from sklearn.metrics import accuracy_score, f1_score
+from peft import PeftModel
 
 # Configurazione dei modelli su Hugging Face
 MODEL_INFOS = {
     "roberta-qqp": {
-        "hf_name": "MatteoBucc/passphrase-identification-roberta-base-qqp-final",
+        "adapter": "MatteoBucc/passphrase-identification-roberta-base-qqp-final",
+        "base": "roberta-base",
         "tokenizer": None,
         "model": None
     },
     "minilm-qqp": {
-        "hf_name": "MatteoBucc/sentence-transformers-all-MiniLM-L6-v2-qqp-adapter-epoch-4",
+        "adapter": "MatteoBucc/sentence-transformers-all-MiniLM-L6-v2-qqp-adapter-epoch-4",
+        "base": "sentence-transformers/all-MiniLM-L6-v2",
         "tokenizer": None,
         "model": None
     }
 }
 
-# Caricamento di tokenizers e modelli
+# Caricamento di tokenizers e modelli base + PEFT adapter
 for key, info in MODEL_INFOS.items():
-    info["tokenizer"] = AutoTokenizer.from_pretrained(info["hf_name"])
-    info["model"]     = AutoModelForSequenceClassification.from_pretrained(info["hf_name"]).eval()
+    # Carica tokenizer e modello base
+    info["tokenizer"] = AutoTokenizer.from_pretrained(info["base"])
+    base_model = AutoModelForSequenceClassification.from_pretrained(info["base"])
+
+    # Carica adapter PEFT
+    info["model"] = PeftModel.from_pretrained(base_model, info["adapter"]).eval()
 
 @torch.no_grad()
 def predict_single(model, tokenizer, sentences):
@@ -41,14 +48,11 @@ def predict_single(model, tokenizer, sentences):
     probs = torch.softmax(outputs.logits, dim=-1).cpu().numpy()
     return probs
 
-
 def ensemble_predict(sentences, weights=None):
     """
     sentences: list of tuples (sent1, sent2)
     weights: dict with per-model weights (default uniform)
     returns: (preds, avg_probs)
-    preds: numpy array of label ids
-    avg_probs: numpy array of avg probabilities
     """
     n = len(MODEL_INFOS)
     if weights is None:
@@ -63,7 +67,6 @@ def ensemble_predict(sentences, weights=None):
     preds = np.argmax(avg_probs, axis=1)
     return preds, avg_probs
 
-
 def load_task(task_name):
     """Load validation split for QQP or MRPC and return pairs and labels"""
     ds = load_dataset("glue", task_name, split="validation")
@@ -73,7 +76,6 @@ def load_task(task_name):
         pairs = [(ex["sentence1"], ex["sentence2"]) for ex in ds]
     labels = np.array(ds["label"])
     return pairs, labels
-
 
 def evaluate(pairs, labels, name):
     preds, _ = ensemble_predict(pairs)
@@ -96,4 +98,3 @@ if __name__ == "__main__":
     evaluate(qqp_pairs, qqp_labels, "QQP")
     evaluate(mrpc_pairs, mrpc_labels, "MRPC")
     evaluate(mixed_pairs, mixed_labels, "Mixed QQP+MRPC")
-
