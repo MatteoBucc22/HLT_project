@@ -18,34 +18,34 @@ MODEL_INFOS = {
     }
 }
 
-def predict_single_full(base_model_name, adapter_path, sentences, device="cuda"):
-    """
-    Carica tokenizer e modello base, applica adapter PEFT, inferisce le probabilità e rilascia memoria.
-    """
-    # Tokenizer dal modello base
+def predict_single_full(base_model_name, adapter_name, sentences, device="cuda", batch_size=16):
+    from peft import PeftModel
+
     tokenizer = AutoTokenizer.from_pretrained(base_model_name)
-
-    # Caricamento modello base + adapter PEFT
     base_model = AutoModelForSequenceClassification.from_pretrained(base_model_name).to(device)
-    model = PeftModel.from_pretrained(base_model, adapter_path).eval()
+    model = PeftModel.from_pretrained(base_model, adapter_name).eval()
 
-    # Tokenizzazione e inferenza
-    inputs = tokenizer(
-        [s[0] for s in sentences],
-        [s[1] for s in sentences],
-        padding=True,
-        truncation=True,
-        return_tensors="pt"
-    ).to(device)
+    all_probs = []
+    for i in range(0, len(sentences), batch_size):
+        batch = sentences[i:i+batch_size]
+        inputs = tokenizer(
+            [s[0] for s in batch],
+            [s[1] for s in batch],
+            padding=True,
+            truncation=True,
+            return_tensors="pt"
+        ).to(device)
+        with torch.no_grad():
+            probs = torch.softmax(model(**inputs).logits, dim=-1).cpu().numpy()
+        all_probs.append(probs)
 
-    with torch.no_grad():
-        probs = torch.softmax(model(**inputs).logits, dim=-1).cpu().numpy()
+        # Libera memoria batch
+        del inputs, probs
+        torch.cuda.empty_cache()
 
-    # Libera memoria
-    del model, base_model, tokenizer, inputs
-    torch.cuda.empty_cache()
+    # Combina output batch
+    return np.vstack(all_probs)
 
-    return probs
 
 
 def ensemble_predict(sentences, weights=None, device="cuda"):
