@@ -4,49 +4,49 @@ import numpy as np
 from datasets import load_dataset
 from sklearn.metrics import accuracy_score, f1_score
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from peft import PeftModel
 
-# Configurazione dei modelli full su HF
+# Configurazione dei modelli PEFT
 MODEL_INFOS = {
     "roberta-qqp": {
-        "hf_name": "MatteoBucc/passphrase-identification-roberta-base-qqp-final",
+        "base": "roberta-base",
+        "adapter": "MatteoBucc/passphrase-identification-roberta-base-qqp-final"
     },
     "minilm-qqp": {
-        "hf_name": "MatteoBucc/sentence-transformers-all-MiniLM-L6-v2-qqp-adapter-epoch-4",
+        "base": "sentence-transformers/all-MiniLM-L6-v2",
+        "adapter": "MatteoBucc/passphrase-identification-all-MiniLM-L6-v2-qqp-final"
     }
 }
 
-def predict_single_full(model_name, sentences, device="cuda", batch_size=32):
+def predict_single_full(base_model_name, adapter_path, sentences, device="cuda"):
     """
-    Carica on-the-fly tokenizer e modello full fine-tuned,
-    inferisce le probabilità in batch e rilascia memoria.
+    Carica tokenizer e modello base, applica adapter PEFT, inferisce le probabilità e rilascia memoria.
     """
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSequenceClassification.from_pretrained(model_name).eval().to(device)
+    # Tokenizer dal modello base
+    tokenizer = AutoTokenizer.from_pretrained(base_model_name)
 
-    all_probs = []
-    for i in range(0, len(sentences), batch_size):
-        batch = sentences[i:i + batch_size]
-        inputs = tokenizer(
-            [s[0] for s in batch],
-            [s[1] for s in batch],
-            padding=True,
-            truncation=True,
-            return_tensors="pt"
-        ).to(device)
-        with torch.no_grad():
-            logits = model(**inputs).logits
-            probs = torch.softmax(logits, dim=-1).cpu().numpy()
-            all_probs.append(probs)
+    # Caricamento modello base + adapter PEFT
+    base_model = AutoModelForSequenceClassification.from_pretrained(base_model_name).to(device)
+    model = PeftModel.from_pretrained(base_model, adapter_path).eval()
 
-        del inputs, logits
-        torch.cuda.empty_cache()
+    # Tokenizzazione e inferenza
+    inputs = tokenizer(
+        [s[0] for s in sentences],
+        [s[1] for s in sentences],
+        padding=True,
+        truncation=True,
+        return_tensors="pt"
+    ).to(device)
 
-    all_probs = np.concatenate(all_probs, axis=0)
+    with torch.no_grad():
+        probs = torch.softmax(model(**inputs).logits, dim=-1).cpu().numpy()
 
-    del model, tokenizer
+    # Libera memoria
+    del model, base_model, tokenizer, inputs
     torch.cuda.empty_cache()
 
-    return all_probs
+    return probs
+
 
 def ensemble_predict(sentences, weights=None, device="cuda"):
     n = len(MODEL_INFOS)
@@ -55,7 +55,7 @@ def ensemble_predict(sentences, weights=None, device="cuda"):
 
     all_probs = []
     for key, info in MODEL_INFOS.items():
-        probs = predict_single_full(info["hf_name"], sentences, device)
+        probs = predict_single_full(info["base"], info["adapter"], sentences, device)
         all_probs.append(weights[key] * probs)
 
     avg = np.sum(all_probs, axis=0)
