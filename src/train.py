@@ -1,6 +1,7 @@
 import os
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
+import random
 import torch
+import numpy as np
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from transformers import default_data_collator, AutoTokenizer, AutoConfig
@@ -8,14 +9,31 @@ from tqdm.auto import tqdm
 import time
 import datetime
 from sklearn.metrics import accuracy_score, f1_score
-import numpy as np
 
 from peft import get_peft_model, LoraConfig, TaskType, PeftModel
 
 from data_loader import get_datasets
 from model import get_model, MODEL_NAME
-from config import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR, DATASET_NAME
+from config import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR, DATASET_NAME, SEED
 from hf_utils import save_to_hf
+
+# Impostazione dei seed per riproducibilità
+random.seed(SEED)
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+torch.cuda.manual_seed_all(SEED)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+
+def set_worker_seed(worker_id):
+    # Assicura seed anche per i worker dei DataLoader
+    worker_seed = SEED + worker_id
+    random.seed(worker_seed)
+    np.random.seed(worker_seed)
+    torch.manual_seed(worker_seed)
 
 
 def generate_embeddings(model, dataloader, save_path, repo_id=None):
@@ -33,7 +51,6 @@ def generate_embeddings(model, dataloader, save_path, repo_id=None):
             batch = {k: v.to(DEVICE) for k, v in batch.items() if k != 'labels'}
             outputs = model.base_model(**batch, output_hidden_states=True, return_dict=True)
 
-            # Prendo embedding CLS
             cls_embeddings = outputs.hidden_states[-1][:, 0, :]
             all_embeddings.append(cls_embeddings.cpu())
             all_labels.extend(labels)
@@ -69,14 +86,16 @@ def train():
     model = get_peft_model(base_model, peft_config)
     model.print_trainable_parameters()
 
-    # DataLoader
+    # DataLoader con semina dei worker
     train_loader = DataLoader(
         dataset["train"], batch_size=BATCH_SIZE, shuffle=True,
-        num_workers=4, pin_memory=True, collate_fn=default_data_collator
+        num_workers=4, pin_memory=True, collate_fn=default_data_collator,
+        worker_init_fn=set_worker_seed
     )
     val_loader = DataLoader(
         dataset["validation"], batch_size=BATCH_SIZE,
-        num_workers=4, pin_memory=True, collate_fn=default_data_collator
+        num_workers=4, pin_memory=True, collate_fn=default_data_collator,
+        worker_init_fn=set_worker_seed
     )
 
     optimizer = AdamW(
