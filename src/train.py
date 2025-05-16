@@ -157,7 +157,8 @@ def train():
             print(f"✔️ Adapter epoch {epoch+1} salvato in: {adapter_dir}\n")
 
     # Merge LoRA + base per cross-encoder completo
-    merged = PeftModel.from_pretrained(base_model, SAVE_DIR)
+    adapter_path = os.path.join(SAVE_DIR, f"{MODEL_NAME.replace('/', '-')}-{DATASET_NAME}_lora_adapter_{ts}")
+    merged = PeftModel.from_pretrained(base_model, adapter_path)
     merged = merged.merge_and_unload()
 
     # Salvataggio modello completo
