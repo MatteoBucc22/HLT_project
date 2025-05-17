@@ -45,7 +45,6 @@ def predict_with_peft(base_model_name, adapter_name, pairs, device="cuda", batch
     total = len(pairs)
     for i in range(0, total, batch_size):
         batch = pairs[i : i + batch_size]
-        print(f"PEFT inference {base_model_name}: batch {i // batch_size + 1}/{(total - 1) // batch_size + 1}")
         inputs = tokenizer(
             [p[0] for p in batch],
             [p[1] for p in batch],
@@ -71,7 +70,6 @@ def predict_with_full(base_model_name, model_repo, pairs, device="cuda", batch_s
     total = len(pairs)
     for i in range(0, total, batch_size):
         batch = pairs[i : i + batch_size]
-        print(f"Full-model inference {model_repo}: batch {i // batch_size + 1}/{(total - 1) // batch_size + 1}")
         inputs = tokenizer(
             [p[0] for p in batch],
             [p[1] for p in batch],
