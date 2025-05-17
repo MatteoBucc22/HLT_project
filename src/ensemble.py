@@ -6,7 +6,7 @@ from sklearn.metrics import accuracy_score, f1_score
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from peft import PeftModel
 
-# Configurazione dei modelli PEFT
+# Configurazione dei modelli
 MODEL_INFOS = {
     "roberta-qqp": {
         "base": "roberta-base",
@@ -17,22 +17,25 @@ MODEL_INFOS = {
         "adapter": "MatteoBucc/sentence-transformers-all-MiniLM-L6-v2-qqp-adapter-epoch-4"
     },
     "roberta-mrpc": {
-        "base": "roberta-base",
-        "adapter": "MatteoBucc/passphrase-identification-roberta-base-mrpc-best"
+        "base": "MatteoBucc/passphrase-identification-roberta-base-mrpc-best",
+        "adapter": None  # <-- Usa direttamente il modello fine-tuned completo
     },
     "minilm-mrpc": {
-        "base": "sentence-transformers/all-MiniLM-L6-v2",
-        "adapter": "MatteoBucc/passphrase-identification-sentence-transformers-all-MiniLM-L6-v2-mrpc-best"
+        "base": "MatteoBucc/passphrase-identification-sentence-transformers-all-MiniLM-L6-v2-mrpc-best",
+        "adapter": None  # <-- Anche questo modello è completo
     }
-
 }
 
 def predict_single_full(base_model_name, adapter_name, sentences, device="cuda", batch_size=16):
-    from peft import PeftModel
-
     tokenizer = AutoTokenizer.from_pretrained(base_model_name)
-    base_model = AutoModelForSequenceClassification.from_pretrained(base_model_name).to(device)
-    model = PeftModel.from_pretrained(base_model, adapter_name).eval()
+
+    if adapter_name is None:
+        # Usa direttamente il modello fine-tuned
+        model = AutoModelForSequenceClassification.from_pretrained(base_model_name).to(device).eval()
+    else:
+        # Usa PEFT adapter su base model
+        base_model = AutoModelForSequenceClassification.from_pretrained(base_model_name).to(device)
+        model = PeftModel.from_pretrained(base_model, adapter_name).eval()
 
     all_probs = []
     for i in range(0, len(sentences), batch_size):
@@ -44,6 +47,7 @@ def predict_single_full(base_model_name, adapter_name, sentences, device="cuda",
             truncation=True,
             return_tensors="pt"
         ).to(device)
+
         with torch.no_grad():
             probs = torch.softmax(model(**inputs).logits, dim=-1).cpu().numpy()
         all_probs.append(probs)
@@ -52,10 +56,7 @@ def predict_single_full(base_model_name, adapter_name, sentences, device="cuda",
         del inputs, probs
         torch.cuda.empty_cache()
 
-    # Combina output batch
     return np.vstack(all_probs)
-
-
 
 def ensemble_predict(sentences, weights=None, device="cuda"):
     n = len(MODEL_INFOS)
@@ -72,7 +73,6 @@ def ensemble_predict(sentences, weights=None, device="cuda"):
     return preds, avg
 
 if __name__ == "__main__":
-    # Carico validation set
     qqp_ds = load_dataset("glue", "qqp", split="validation")
     mrpc_ds = load_dataset("glue", "mrpc", split="validation")
 
@@ -82,11 +82,9 @@ if __name__ == "__main__":
     mrpc_pairs = [(ex["sentence1"], ex["sentence2"]) for ex in mrpc_ds]
     mrpc_labels = np.array(mrpc_ds["label"])
 
-    # Mixed
     mixed_pairs = qqp_pairs + mrpc_pairs
     mixed_labels = np.concatenate([qqp_labels, mrpc_labels])
 
-    # Valutazioni
     for name, pairs, labels in [
         ("QQP", qqp_pairs, qqp_labels),
         ("MRPC", mrpc_pairs, mrpc_labels),
