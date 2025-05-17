@@ -1,23 +1,24 @@
 import os
-os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 import random
 import numpy as np
-import torch
+import torch, time
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
+from torch.nn import CrossEntropyLoss
 from transformers import default_data_collator, get_scheduler
-from tqdm.auto import tqdm
-import time
 from sklearn.metrics import accuracy_score, f1_score
+from tqdm.auto import tqdm
 
-from data_loader import get_datasets
-from model import get_model, MODEL_NAME
 from config import (
     DEVICE, BATCH_SIZE, LEARNING_RATE, WEIGHT_DECAY,
     EPOCHS, SAVE_DIR, DATASET_NAME, SEED,
     MAX_LENGTH, WARMUP_RATIO, WARMUP_STEPS,
-    LR_SCHEDULER, LOGGING_STEPS, HIDDEN_DROPOUT
+    LR_SCHEDULER, LOGGING_STEPS,
+    ACCUM_STEPS, LABEL_SMOOTHING,
+    EARLY_STOPPING_PATIENCE, NUM_WORKERS, PIN_MEMORY, MODEL_NAME, HF_REPO_PREFIX
 )
+from data_loader import get_datasets
+from model import get_model
 from hf_utils import save_to_hf
 
 
@@ -29,134 +30,134 @@ def set_seed(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
+
 def generate_embeddings(model, dataloader, save_path):
     model.eval()
     all_embeddings, all_labels = [], []
-
     with torch.no_grad():
         for batch in tqdm(dataloader, desc="🔍 Generating Embeddings"):
             labels = batch["labels"]
             batch = {k: v.to(DEVICE) for k, v in batch.items()}
             outputs = model(**batch, output_hidden_states=True, return_dict=True)
-            cls_embeddings = outputs.hidden_states[-1][:, 0, :]
-            all_embeddings.append(cls_embeddings.cpu())
+            cls_emb = outputs.hidden_states[-1][:, 0, :]
+            all_embeddings.append(cls_emb.cpu())
             all_labels.extend(labels)
-
     all_embeddings = torch.cat(all_embeddings)
     all_labels = torch.tensor(all_labels)
-
     os.makedirs(save_path, exist_ok=True)
     torch.save({"embeddings": all_embeddings, "labels": all_labels},
                os.path.join(save_path, "validation_embeddings.pt"))
-    print(f"💾 Embedding di validazione salvati in: {save_path}/validation_embeddings.pt")
+    print(f"💾 Embedding salvati in: {save_path}")
+
 
 def train():
     set_seed(SEED)
-
-    # Carica dataset e modello
-    dataset = get_datasets()
-    model = get_model(
-        hidden_dropout_prob=HIDDEN_DROPOUT
-    ).to(DEVICE)
+    dataset = get_datasets(tokenizer_max_length=MAX_LENGTH)
+    model = get_model().to(DEVICE)
 
     train_loader = DataLoader(
         dataset['train'], batch_size=BATCH_SIZE,
-        shuffle=True, num_workers=4, pin_memory=True,
+        shuffle=True, num_workers=NUM_WORKERS,
+        pin_memory=PIN_MEMORY,
         collate_fn=default_data_collator
     )
     val_loader = DataLoader(
         dataset['validation'], batch_size=BATCH_SIZE,
-        num_workers=4, pin_memory=True,
+        num_workers=NUM_WORKERS, pin_memory=PIN_MEMORY,
         collate_fn=default_data_collator
     )
 
-    # Ottimizzatore con weight decay
     optimizer = AdamW(
-        model.parameters(),
-        lr=LEARNING_RATE,
+        model.parameters(), lr=LEARNING_RATE,
         weight_decay=WEIGHT_DECAY
     )
 
-    # Calcolo warmup steps
     total_steps = EPOCHS * len(train_loader)
-    if WARMUP_STEPS is None:
-        warmup_steps = int(WARMUP_RATIO * total_steps)
-    else:
-        warmup_steps = WARMUP_STEPS
+    warmup_steps = (WARMUP_STEPS if WARMUP_STEPS is not None
+                    else int(WARMUP_RATIO * total_steps))
 
-    # Scheduler: linear o cosine
     scheduler = get_scheduler(
-        LR_SCHEDULER,
-        optimizer=optimizer,
+        LR_SCHEDULER, optimizer=optimizer,
         num_warmup_steps=warmup_steps,
         num_training_steps=total_steps
     )
 
-    # Gradient accumulation per simulare batch più grandi
-    accum_steps = 2
+    loss_fn = CrossEntropyLoss(label_smoothing=LABEL_SMOOTHING)
     scaler = torch.cuda.amp.GradScaler()
+
     best_acc = 0.0
+    best_val_loss = float('inf')
+    no_improve = 0
     safe_name = MODEL_NAME.replace('/', '-')
     best_dir = os.path.join(SAVE_DIR, f"{safe_name}-{DATASET_NAME}-best")
 
     for epoch in range(1, EPOCHS + 1):
         model.train()
-        total_loss = 0.0
-        start_time = time.time()
-        loop = tqdm(train_loader, desc=f"Epoch {epoch}", unit='batch')
-
         optimizer.zero_grad()
+        total_loss = 0.0
+        start = time.time()
+        loop = tqdm(train_loader, desc=f"Epoch {epoch}")
+
         for step, batch in enumerate(loop):
             batch = {k: v.to(DEVICE) for k, v in batch.items()}
             with torch.cuda.amp.autocast():
                 outputs = model(**batch)
-                loss = outputs.loss / accum_steps
-
+                logits = outputs.logits
+                loss = loss_fn(logits, batch['labels']) / ACCUM_STEPS
             scaler.scale(loss).backward()
 
-            if (step + 1) % accum_steps == 0:
+            if (step + 1) % ACCUM_STEPS == 0:
                 scaler.step(optimizer)
                 scaler.update()
                 scheduler.step()
                 optimizer.zero_grad()
 
-            total_loss += loss.item() * accum_steps
+            total_loss += loss.item() * ACCUM_STEPS
             if (step + 1) % LOGGING_STEPS == 0:
-                loop.set_postfix(
-                    loss=total_loss / ((step+1) * BATCH_SIZE)
-                )
+                loop.set_postfix(loss=total_loss / ((step+1)*BATCH_SIZE))
 
-        avg_loss = total_loss / len(train_loader)
-        print(f"\nEpoch {epoch} — Avg Train Loss: {avg_loss:.4f} — Time: {time.time() - start_time:.1f}s")
+        avg_train_loss = total_loss / len(train_loader)
+        print(f"\nEpoch {epoch} — Train Loss: {avg_train_loss:.4f} — Time: {time.time()-start:.1f}s")
 
-        # Validazione
+        # Validation
         model.eval()
+        val_loss = 0.0
         all_preds, all_labels = [], []
         with torch.no_grad():
             for batch in val_loader:
                 batch = {k: v.to(DEVICE) for k, v in batch.items()}
                 outputs = model(**batch)
-                preds = outputs.logits.argmax(dim=1)
+                logits = outputs.logits
+                val_loss += loss_fn(logits, batch['labels']).item()
+                preds = logits.argmax(dim=1)
                 all_preds.extend(preds.cpu().tolist())
                 all_labels.extend(batch['labels'].cpu().tolist())
 
+        avg_val_loss = val_loss / len(val_loader)
         acc = accuracy_score(all_labels, all_preds)
         f1 = f1_score(all_labels, all_preds)
-        print(f"🧪 Validation — Accuracy: {acc:.4f} | F1 Score: {f1:.4f}\n")
+        print(f"🧪 Val — Loss: {avg_val_loss:.4f} | Acc: {acc:.4f} | F1: {f1:.4f}\n")
 
-        # Salvataggio best model
+        # Early stopping & best model
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            no_improve = 0
+        else:
+            no_improve += 1
+            if no_improve >= EARLY_STOPPING_PATIENCE:
+                print("⏹ Early stopping")
+                break
+
         if acc > best_acc:
             best_acc = acc
             os.makedirs(best_dir, exist_ok=True)
             model.save_pretrained(best_dir)
-            print(f"💾 Miglior modello salvato in: {best_dir} (acc: {acc:.4f})")
-            save_to_hf(
-                best_dir,
-                repo_id=f"MatteoBucc/passphrase-identification-{safe_name}-{DATASET_NAME}-best"
-            )
+            save_to_hf(best_dir, repo_id=f"{HF_REPO_PREFIX}-{safe_name}-{DATASET_NAME}-best")
+            print(f"💾 Best model saved: {best_dir} (acc: {acc:.4f})")
 
     # Embeddings finali
     generate_embeddings(model, val_loader, save_path=best_dir)
+
 
 if __name__ == '__main__':
     train()
