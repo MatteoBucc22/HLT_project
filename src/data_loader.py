@@ -3,9 +3,8 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 from datasets import load_dataset
 from transformers import AutoTokenizer
-from sentence_transformers import InputExample
 from config import MODEL_NAME, DATASET_NAME, MAX_LENGTH
-from config import MODEL_NAME, MAX_LENGTH, DATASET_NAME  # Assicurati che DATASET_NAME = "qqp"
+
 
 def get_datasets():
     ds = load_dataset("glue", DATASET_NAME)
