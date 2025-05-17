@@ -5,7 +5,6 @@ from datasets import load_dataset
 from sklearn.metrics import accuracy_score, f1_score
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from peft import PeftModel
-from tqdm import tqdm
 
 # Configurazione dei modelli: tipo "peft" per adapter, tipo "full" per repo con modello completo
 MODEL_INFOS = {
@@ -13,6 +12,7 @@ MODEL_INFOS = {
         "type": "peft",
         "base": "roberta-base",
         "adapter": "MatteoBucc/passphrase-identification-roberta-base-qqp-final",
+        # peso iniziale più alto per RoBERTa
         "weight": 0.3
     },
     "minilm-qqp": {
@@ -43,11 +43,9 @@ def predict_with_peft(base_model_name, adapter_name, pairs, device="cuda", batch
 
     all_probs = []
     total = len(pairs)
-    steps = (total + batch_size - 1) // batch_size
-    # barra di progresso sui batch
-    for step in tqdm(range(steps), desc=f"PEFT {base_model_name}", unit="batch", leave=False):
-        start = step * batch_size
-        batch = pairs[start : start + batch_size]
+    for i in range(0, total, batch_size):
+        batch = pairs[i : i + batch_size]
+        print(f"PEFT inference {base_model_name}: batch {i // batch_size + 1}/{(total - 1) // batch_size + 1}")
         inputs = tokenizer(
             [p[0] for p in batch],
             [p[1] for p in batch],
@@ -62,7 +60,7 @@ def predict_with_peft(base_model_name, adapter_name, pairs, device="cuda", batch
         del inputs, logits, probs
         torch.cuda.empty_cache()
 
-    return np.vstack(all_probs)(all_probs)
+    return np.vstack(all_probs)
 
 
 def predict_with_full(base_model_name, model_repo, pairs, device="cuda", batch_size=16):
@@ -71,11 +69,9 @@ def predict_with_full(base_model_name, model_repo, pairs, device="cuda", batch_s
 
     all_probs = []
     total = len(pairs)
-    steps = (total + batch_size - 1) // batch_size
-    # barra di progresso sui batch
-    for step in tqdm(range(steps), desc=f"Full {model_repo}", unit="batch", leave=False):
-        start = step * batch_size
-        batch = pairs[start : start + batch_size]
+    for i in range(0, total, batch_size):
+        batch = pairs[i : i + batch_size]
+        print(f"Full-model inference {model_repo}: batch {i // batch_size + 1}/{(total - 1) // batch_size + 1}")
         inputs = tokenizer(
             [p[0] for p in batch],
             [p[1] for p in batch],
@@ -90,7 +86,7 @@ def predict_with_full(base_model_name, model_repo, pairs, device="cuda", batch_s
         del inputs, logits, probs
         torch.cuda.empty_cache()
 
-    return np.vstack(all_probs)(all_probs)
+    return np.vstack(all_probs)
 
 
 def ensemble_predict(pairs, device="cuda"):
@@ -100,14 +96,17 @@ def ensemble_predict(pairs, device="cuda"):
     weights = {k: v / total_w for k, v in weights.items()}
 
     weighted_probs = []
-    # barra di progresso sui modelli
-    for name, info in tqdm(MODEL_INFOS.items(), desc="Modelli ensemble", total=len(MODEL_INFOS)):
+    for name, info in MODEL_INFOS.items():
+        print(f"--- Inference con modello: {name} ---")
         if info["type"] == "peft":
             probs = predict_with_peft(info["base"], info["adapter"], pairs, device)
         else:
             probs = predict_with_full(info["base"], info["model_repo"], pairs, device)
-        weighted_probs.append(weights[name] * probs)
+        weighted = weights[name] * probs
+        weighted_probs.append(weighted)
+        print(f"Pesi: {name} -> {weights[name]:.2f}\n")
 
+    print("--- Calcolo ensemble ---")
     avg_probs = np.sum(weighted_probs, axis=0)
     preds = np.argmax(avg_probs, axis=1)
     return preds, avg_probs
