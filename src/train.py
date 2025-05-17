@@ -56,7 +56,6 @@ def train():
     # Carica dataset e modello
     dataset = get_datasets()
     model = get_model(
-        model_name=MODEL_NAME,
         hidden_dropout_prob=HIDDEN_DROPOUT
     ).to(DEVICE)
 
