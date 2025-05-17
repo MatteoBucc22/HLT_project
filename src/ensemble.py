@@ -6,73 +6,108 @@ from sklearn.metrics import accuracy_score, f1_score
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from peft import PeftModel
 
-# Configurazione dei modelli
+# Configurazione dei modelli: tipo "peft" per adapter, tipo "full" per repo con modello completo
 MODEL_INFOS = {
     "roberta-qqp": {
+        "type": "peft",
         "base": "roberta-base",
         "adapter": "MatteoBucc/passphrase-identification-roberta-base-qqp-final"
     },
     "minilm-qqp": {
+        "type": "peft",
         "base": "sentence-transformers/all-MiniLM-L6-v2",
         "adapter": "MatteoBucc/sentence-transformers-all-MiniLM-L6-v2-qqp-adapter-epoch-4"
     },
     "roberta-mrpc": {
-        "base": "MatteoBucc/passphrase-identification-roberta-base-mrpc-best",
-        "adapter": None  # <-- Usa direttamente il modello fine-tuned completo
+        "type": "full",
+        # repo contiene config.json e model.safetensors
+        "model_repo": "MatteoBucc/passphrase-identification-roberta-base-mrpc-best"
     },
     "minilm-mrpc": {
-        "base": "MatteoBucc/passphrase-identification-sentence-transformers-all-MiniLM-L6-v2-mrpc-best",
-        "adapter": None  # <-- Anche questo modello è completo
+        "type": "full",
+        "model_repo": "MatteoBucc/passphrase-identification-sentence-transformers-all-MiniLM-L6-v2-mrpc-best"
     }
 }
 
-def predict_single_full(base_model_name, adapter_name, sentences, device="cuda", batch_size=16):
+def predict_with_peft(base_model_name, adapter_name, pairs, device="cuda", batch_size=16):
+    """
+    Inference per modelli LoRA (PEFT).
+    """
     tokenizer = AutoTokenizer.from_pretrained(base_model_name)
-
-    if adapter_name is None:
-        # Usa direttamente il modello fine-tuned
-        model = AutoModelForSequenceClassification.from_pretrained(base_model_name).to(device).eval()
-    else:
-        # Usa PEFT adapter su base model
-        base_model = AutoModelForSequenceClassification.from_pretrained(base_model_name).to(device)
-        model = PeftModel.from_pretrained(base_model, adapter_name).eval()
+    base_model = AutoModelForSequenceClassification.from_pretrained(base_model_name).to(device)
+    model = PeftModel.from_pretrained(base_model, adapter_name).eval()
 
     all_probs = []
-    for i in range(0, len(sentences), batch_size):
-        batch = sentences[i:i+batch_size]
+    for i in range(0, len(pairs), batch_size):
+        batch = pairs[i : i + batch_size]
         inputs = tokenizer(
-            [s[0] for s in batch],
-            [s[1] for s in batch],
+            [p[0] for p in batch],
+            [p[1] for p in batch],
             padding=True,
             truncation=True,
             return_tensors="pt"
         ).to(device)
-
         with torch.no_grad():
-            probs = torch.softmax(model(**inputs).logits, dim=-1).cpu().numpy()
+            logits = model(**inputs).logits
+            probs = torch.softmax(logits, dim=-1).cpu().numpy()
         all_probs.append(probs)
-
-        # Libera memoria batch
-        del inputs, probs
+        del inputs, logits, probs
         torch.cuda.empty_cache()
 
     return np.vstack(all_probs)
 
-def ensemble_predict(sentences, weights=None, device="cuda"):
-    n = len(MODEL_INFOS)
-    if weights is None:
-        weights = {k: 1/n for k in MODEL_INFOS}
+
+def predict_with_full(model_repo, pairs, device="cuda", batch_size=16):
+    """
+    Inference per modelli fine-tuned salvati come modello completo su HF.
+    """
+    tokenizer = AutoTokenizer.from_pretrained(model_repo)
+    model = AutoModelForSequenceClassification.from_pretrained(model_repo).to(device).eval()
 
     all_probs = []
-    for key, info in MODEL_INFOS.items():
-        probs = predict_single_full(info["base"], info["adapter"], sentences, device)
-        all_probs.append(weights[key] * probs)
+    for i in range(0, len(pairs), batch_size):
+        batch = pairs[i : i + batch_size]
+        inputs = tokenizer(
+            [p[0] for p in batch],
+            [p[1] for p in batch],
+            padding=True,
+            truncation=True,
+            return_tensors="pt"
+        ).to(device)
+        with torch.no_grad():
+            logits = model(**inputs).logits
+            probs = torch.softmax(logits, dim=-1).cpu().numpy()
+        all_probs.append(probs)
+        del inputs, logits, probs
+        torch.cuda.empty_cache()
 
-    avg = np.sum(all_probs, axis=0)
-    preds = np.argmax(avg, axis=1)
-    return preds, avg
+    return np.vstack(all_probs)
+
+
+def ensemble_predict(pairs, weights=None, device="cuda"):
+    """
+    Calcola ensemble su tutti i modelli definiti in MODEL_INFOS.
+    """
+    n_models = len(MODEL_INFOS)
+    if weights is None:
+        weights = {k: 1/n_models for k in MODEL_INFOS}
+
+    weighted_probs = []
+    for name, info in MODEL_INFOS.items():
+        if info["type"] == "peft":
+            probs = predict_with_peft(info["base"], info["adapter"], pairs, device)
+        else:
+            # full model
+            probs = predict_with_full(info["model_repo"], pairs, device)
+        weighted_probs.append(weights[name] * probs)
+
+    avg_probs = np.sum(weighted_probs, axis=0)
+    preds = np.argmax(avg_probs, axis=1)
+    return preds, avg_probs
+
 
 if __name__ == "__main__":
+    # Carico validation set
     qqp_ds = load_dataset("glue", "qqp", split="validation")
     mrpc_ds = load_dataset("glue", "mrpc", split="validation")
 
@@ -85,7 +120,8 @@ if __name__ == "__main__":
     mixed_pairs = qqp_pairs + mrpc_pairs
     mixed_labels = np.concatenate([qqp_labels, mrpc_labels])
 
-    for name, pairs, labels in [
+    # Valutazioni
+    for split_name, pairs, labels in [
         ("QQP", qqp_pairs, qqp_labels),
         ("MRPC", mrpc_pairs, mrpc_labels),
         ("Mixed", mixed_pairs, mixed_labels)
@@ -93,5 +129,5 @@ if __name__ == "__main__":
         preds, _ = ensemble_predict(pairs)
         acc = accuracy_score(labels, preds)
         f1 = f1_score(labels, preds)
-        print(f"=== {name} ===")
+        print(f"=== {split_name} ===")
         print(f"Accuracy: {acc:.4f}, F1: {f1:.4f}\n")
