@@ -54,7 +54,7 @@ def train():
     set_seed(SEED)
 
     # Carica dataset e modello
-    dataset = get_datasets(tokenizer_max_length=MAX_LENGTH)
+    dataset = get_datasets()
     model = get_model(
         model_name=MODEL_NAME,
         hidden_dropout_prob=HIDDEN_DROPOUT
