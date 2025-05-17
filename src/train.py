@@ -52,8 +52,8 @@ def generate_embeddings(model, dataloader, save_path):
 
 def train():
     set_seed(SEED)
-    dataset = get_datasets(tokenizer_max_length=MAX_LENGTH)
-    model = get_model().to(DEVICE)
+    dataset = get_datasets()
+    model = get_model(hidden_dropout_prob=0.2).to(DEVICE)
 
     train_loader = DataLoader(
         dataset['train'], batch_size=BATCH_SIZE,
