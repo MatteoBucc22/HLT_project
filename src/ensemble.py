@@ -20,19 +20,18 @@ MODEL_INFOS = {
     },
     "roberta-mrpc": {
         "type": "full",
-        # repo contiene config.json e model.safetensors
+        # repo contiene config.json, model.safetensors e validation_embeddings.pt
+        "base": "roberta-base",
         "model_repo": "MatteoBucc/passphrase-identification-roberta-base-mrpc-best"
     },
     "minilm-mrpc": {
         "type": "full",
+        "base": "sentence-transformers/all-MiniLM-L6-v2",
         "model_repo": "MatteoBucc/passphrase-identification-sentence-transformers-all-MiniLM-L6-v2-mrpc-best"
     }
 }
 
 def predict_with_peft(base_model_name, adapter_name, pairs, device="cuda", batch_size=16):
-    """
-    Inference per modelli LoRA (PEFT).
-    """
     tokenizer = AutoTokenizer.from_pretrained(base_model_name)
     base_model = AutoModelForSequenceClassification.from_pretrained(base_model_name).to(device)
     model = PeftModel.from_pretrained(base_model, adapter_name).eval()
@@ -57,11 +56,10 @@ def predict_with_peft(base_model_name, adapter_name, pairs, device="cuda", batch
     return np.vstack(all_probs)
 
 
-def predict_with_full(model_repo, pairs, device="cuda", batch_size=16):
-    """
-    Inference per modelli fine-tuned salvati come modello completo su HF.
-    """
-    tokenizer = AutoTokenizer.from_pretrained(model_repo)
+def predict_with_full(base_model_name, model_repo, pairs, device="cuda", batch_size=16):
+    # tokenizer dal modello base, repo contiene solo pesi e config
+    tokenizer = AutoTokenizer.from_pretrained(base_model_name)
+    # carica config e pesi dal repo
     model = AutoModelForSequenceClassification.from_pretrained(model_repo).to(device).eval()
 
     all_probs = []
@@ -85,9 +83,6 @@ def predict_with_full(model_repo, pairs, device="cuda", batch_size=16):
 
 
 def ensemble_predict(pairs, weights=None, device="cuda"):
-    """
-    Calcola ensemble su tutti i modelli definiti in MODEL_INFOS.
-    """
     n_models = len(MODEL_INFOS)
     if weights is None:
         weights = {k: 1/n_models for k in MODEL_INFOS}
@@ -97,8 +92,7 @@ def ensemble_predict(pairs, weights=None, device="cuda"):
         if info["type"] == "peft":
             probs = predict_with_peft(info["base"], info["adapter"], pairs, device)
         else:
-            # full model
-            probs = predict_with_full(info["model_repo"], pairs, device)
+            probs = predict_with_full(info["base"], info["model_repo"], pairs, device)
         weighted_probs.append(weights[name] * probs)
 
     avg_probs = np.sum(weighted_probs, axis=0)
