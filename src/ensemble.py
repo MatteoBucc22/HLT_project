@@ -43,9 +43,11 @@ def predict_with_peft(base_model_name, adapter_name, pairs, device="cuda", batch
 
     all_probs = []
     total = len(pairs)
+    steps = (total + batch_size - 1) // batch_size
     # barra di progresso sui batch
-    for i in tqdm(range(0, total, batch_size), desc=f"PEFT {base_model_name}"):
-        batch = pairs[i : i + batch_size]
+    for step in tqdm(range(steps), desc=f"PEFT {base_model_name}", unit="batch", leave=False):
+        start = step * batch_size
+        batch = pairs[start : start + batch_size]
         inputs = tokenizer(
             [p[0] for p in batch],
             [p[1] for p in batch],
@@ -60,7 +62,7 @@ def predict_with_peft(base_model_name, adapter_name, pairs, device="cuda", batch
         del inputs, logits, probs
         torch.cuda.empty_cache()
 
-    return np.vstack(all_probs)
+    return np.vstack(all_probs)(all_probs)
 
 
 def predict_with_full(base_model_name, model_repo, pairs, device="cuda", batch_size=16):
@@ -69,9 +71,11 @@ def predict_with_full(base_model_name, model_repo, pairs, device="cuda", batch_s
 
     all_probs = []
     total = len(pairs)
+    steps = (total + batch_size - 1) // batch_size
     # barra di progresso sui batch
-    for i in tqdm(range(0, total, batch_size), desc=f"Full {model_repo}"):
-        batch = pairs[i : i + batch_size]
+    for step in tqdm(range(steps), desc=f"Full {model_repo}", unit="batch", leave=False):
+        start = step * batch_size
+        batch = pairs[start : start + batch_size]
         inputs = tokenizer(
             [p[0] for p in batch],
             [p[1] for p in batch],
@@ -86,7 +90,7 @@ def predict_with_full(base_model_name, model_repo, pairs, device="cuda", batch_s
         del inputs, logits, probs
         torch.cuda.empty_cache()
 
-    return np.vstack(all_probs)
+    return np.vstack(all_probs)(all_probs)
 
 
 def ensemble_predict(pairs, device="cuda"):
