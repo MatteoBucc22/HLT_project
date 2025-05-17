@@ -11,25 +11,30 @@ MODEL_INFOS = {
     "roberta-qqp": {
         "type": "peft",
         "base": "roberta-base",
-        "adapter": "MatteoBucc/passphrase-identification-roberta-base-qqp-final"
+        "adapter": "MatteoBucc/passphrase-identification-roberta-base-qqp-final",
+        # peso iniziale più alto per RoBERTa
+        "weight": 0.3
     },
     "minilm-qqp": {
         "type": "peft",
         "base": "sentence-transformers/all-MiniLM-L6-v2",
-        "adapter": "MatteoBucc/sentence-transformers-all-MiniLM-L6-v2-qqp-adapter-epoch-4"
+        "adapter": "MatteoBucc/sentence-transformers-all-MiniLM-L6-v2-qqp-adapter-epoch-4",
+        "weight": 0.2
     },
     "roberta-mrpc": {
         "type": "full",
-        # repo contiene config.json, model.safetensors e validation_embeddings.pt
         "base": "roberta-base",
-        "model_repo": "MatteoBucc/passphrase-identification-roberta-base-mrpc-best"
+        "model_repo": "MatteoBucc/passphrase-identification-roberta-base-mrpc-best",
+        "weight": 0.3
     },
     "minilm-mrpc": {
         "type": "full",
         "base": "sentence-transformers/all-MiniLM-L6-v2",
-        "model_repo": "MatteoBucc/passphrase-identification-sentence-transformers-all-MiniLM-L6-v2-mrpc-best"
+        "model_repo": "MatteoBucc/passphrase-identification-sentence-transformers-all-MiniLM-L6-v2-mrpc-best",
+        "weight": 0.2
     }
 }
+
 
 def predict_with_peft(base_model_name, adapter_name, pairs, device="cuda", batch_size=16):
     tokenizer = AutoTokenizer.from_pretrained(base_model_name)
@@ -37,8 +42,10 @@ def predict_with_peft(base_model_name, adapter_name, pairs, device="cuda", batch
     model = PeftModel.from_pretrained(base_model, adapter_name).eval()
 
     all_probs = []
-    for i in range(0, len(pairs), batch_size):
+    total = len(pairs)
+    for i in range(0, total, batch_size):
         batch = pairs[i : i + batch_size]
+        print(f"PEFT inference {base_model_name}: batch {i // batch_size + 1}/{(total - 1) // batch_size + 1}")
         inputs = tokenizer(
             [p[0] for p in batch],
             [p[1] for p in batch],
@@ -57,14 +64,14 @@ def predict_with_peft(base_model_name, adapter_name, pairs, device="cuda", batch
 
 
 def predict_with_full(base_model_name, model_repo, pairs, device="cuda", batch_size=16):
-    # tokenizer dal modello base, repo contiene solo pesi e config
     tokenizer = AutoTokenizer.from_pretrained(base_model_name)
-    # carica config e pesi dal repo
     model = AutoModelForSequenceClassification.from_pretrained(model_repo).to(device).eval()
 
     all_probs = []
-    for i in range(0, len(pairs), batch_size):
+    total = len(pairs)
+    for i in range(0, total, batch_size):
         batch = pairs[i : i + batch_size]
+        print(f"Full-model inference {model_repo}: batch {i // batch_size + 1}/{(total - 1) // batch_size + 1}")
         inputs = tokenizer(
             [p[0] for p in batch],
             [p[1] for p in batch],
@@ -82,26 +89,30 @@ def predict_with_full(base_model_name, model_repo, pairs, device="cuda", batch_s
     return np.vstack(all_probs)
 
 
-def ensemble_predict(pairs, weights=None, device="cuda"):
-    n_models = len(MODEL_INFOS)
-    if weights is None:
-        weights = {k: 1/n_models for k in MODEL_INFOS}
+def ensemble_predict(pairs, device="cuda"):
+    # Estrai i pesi e normalizzali
+    weights = {name: info.get("weight", 1.0) for name, info in MODEL_INFOS.items()}
+    total_w = sum(weights.values())
+    weights = {k: v / total_w for k, v in weights.items()}
 
     weighted_probs = []
     for name, info in MODEL_INFOS.items():
+        print(f"--- Inference con modello: {name} ---")
         if info["type"] == "peft":
             probs = predict_with_peft(info["base"], info["adapter"], pairs, device)
         else:
             probs = predict_with_full(info["base"], info["model_repo"], pairs, device)
-        weighted_probs.append(weights[name] * probs)
+        weighted = weights[name] * probs
+        weighted_probs.append(weighted)
+        print(f"Pesi: {name} -> {weights[name]:.2f}\n")
 
+    print("--- Calcolo ensemble ---")
     avg_probs = np.sum(weighted_probs, axis=0)
     preds = np.argmax(avg_probs, axis=1)
     return preds, avg_probs
 
 
 if __name__ == "__main__":
-    # Carico validation set
     qqp_ds = load_dataset("glue", "qqp", split="validation")
     mrpc_ds = load_dataset("glue", "mrpc", split="validation")
 
@@ -114,12 +125,12 @@ if __name__ == "__main__":
     mixed_pairs = qqp_pairs + mrpc_pairs
     mixed_labels = np.concatenate([qqp_labels, mrpc_labels])
 
-    # Valutazioni
     for split_name, pairs, labels in [
         ("QQP", qqp_pairs, qqp_labels),
         ("MRPC", mrpc_pairs, mrpc_labels),
         ("Mixed", mixed_pairs, mixed_labels)
     ]:
+        print(f"===== Valutazione Split: {split_name} =====")
         preds, _ = ensemble_predict(pairs)
         acc = accuracy_score(labels, preds)
         f1 = f1_score(labels, preds)
