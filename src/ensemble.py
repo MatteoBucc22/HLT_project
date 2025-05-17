@@ -15,7 +15,16 @@ MODEL_INFOS = {
     "minilm-qqp": {
         "base": "sentence-transformers/all-MiniLM-L6-v2",
         "adapter": "MatteoBucc/sentence-transformers-all-MiniLM-L6-v2-qqp-adapter-epoch-4"
+    },
+    "roberta-mrpc": {
+        "base": "roberta-base",
+        "adapter": "MatteoBucc/passphrase-identification-roberta-base-mrpc-best"
+    },
+    "minilm-mrpc": {
+        "base": "sentence-transformers/all-MiniLM-L6-v2",
+        "adapter": "MatteoBucc/passphrase-identification-sentence-transformers-all-MiniLM-L6-v2-mrpc-best"
     }
+
 }
 
 def predict_single_full(base_model_name, adapter_name, sentences, device="cuda", batch_size=16):
