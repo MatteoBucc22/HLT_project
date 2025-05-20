@@ -53,37 +53,31 @@ def compute_dynamic_weights(probs_list, true_labels):
         preds = np.argmax(probs, axis=1)
         f1s.append(f1_score(true_labels, preds))
     f1s = np.array(f1s)
-    weights = f1s / f1s.sum()
-    return weights
+    return f1s / f1s.sum()
 
 
-def ensemble_with_dynamic_weights(pairs, labels):
-    # Split train/val per calcolo pesi e stacking
+def evaluate_ensemble_and_stacking(pairs, labels):
+    # Split per dynamic weights e stacking
     pairs_train, pairs_val, y_train, y_val = train_test_split(
         pairs, labels, test_size=0.3, random_state=42
     )
 
-    # Probabilità sui dati di train per stacking
+    # Calcola probabilità
     probs_train = [predict_probs(info, pairs_train) for info in MODEL_INFOS.values()]
-
-    # Probabilità sui dati di val per pesi dinamici
     probs_val = [predict_probs(info, pairs_val) for info in MODEL_INFOS.values()]
     weights = compute_dynamic_weights(probs_val, y_val)
-    print("Pesi dinamici:", weights)
 
-    # Costruisci feature matrix per stacking
+    # Stacking metaclassificatore
     X_stack = np.hstack(probs_train)
     meta_clf = LogisticRegression(max_iter=1000)
     meta_clf.fit(X_stack, y_train)
 
-    # Inferenza finale su train+val
+    # Inference su train+val
     all_pairs = pairs_train + pairs_val
     all_labels = np.concatenate([y_train, y_val])
-
-    # Probabilità per ensemble e stacking
     all_probs = [predict_probs(info, all_pairs) for info in MODEL_INFOS.values()]
 
-    # Dynamic weighted ensemble
+    # Ensemble pesato
     weighted_probs = sum(w * p for w, p in zip(weights, all_probs))
     preds_ens = np.argmax(weighted_probs, axis=1)
 
@@ -92,20 +86,40 @@ def ensemble_with_dynamic_weights(pairs, labels):
     preds_stack = meta_clf.predict(X_meta)
 
     # Metriche
-    acc_ens = accuracy_score(all_labels, preds_ens)
-    f1_ens = f1_score(all_labels, preds_ens)
-    acc_stack = accuracy_score(all_labels, preds_stack)
-    f1_stack = f1_score(all_labels, preds_stack)
+    return {
+        'dynamic': {
+            'accuracy': accuracy_score(all_labels, preds_ens),
+            'f1': f1_score(all_labels, preds_ens)
+        },
+        'stacking': {
+            'accuracy': accuracy_score(all_labels, preds_stack),
+            'f1': f1_score(all_labels, preds_stack)
+        }
+    }
 
-    print(f"Ensemble dynamic weights - Accuracy: {acc_ens:.4f}, F1: {f1_ens:.4f}")
-    print(f"Stacking metaclassificatore - Accuracy: {acc_stack:.4f}, F1: {f1_stack:.4f}")
+if __name__ == '__main__':
+    results = {}
+    # Carica e valuta su QQP
+    qqp = load_dataset('glue', 'qqp', split='validation')
+    qqp_pairs = [(ex['question1'], ex['question2']) for ex in qqp]
+    qqp_labels = np.array(qqp['label'])
+    results['QQP'] = evaluate_ensemble_and_stacking(qqp_pairs, qqp_labels)
 
+    # Carica e valuta su MRPC
+    mrpc = load_dataset('glue', 'mrpc', split='validation')
+    mrpc_pairs = [(ex['sentence1'], ex['sentence2']) for ex in mrpc]
+    mrpc_labels = np.array(mrpc['label'])
+    results['MRPC'] = evaluate_ensemble_and_stacking(mrpc_pairs, mrpc_labels)
 
-if __name__ == "__main__":
-    # Caricamento dataset GLUE
-    qqp = load_dataset("glue", "qqp", split="validation")
-    mrpc = load_dataset("glue", "mrpc", split="validation")
-    pairs = [(ex['question1'], ex['question2']) for ex in qqp] + \
-            [(ex['sentence1'], ex['sentence2']) for ex in mrpc]
-    labels = np.array(qqp['label'] + mrpc['label'])
-    ensemble_with_dynamic_weights(pairs, labels)
+    # Mixed
+    mixed_pairs = qqp_pairs + mrpc_pairs
+    mixed_labels = np.concatenate([qqp_labels, mrpc_labels])
+    results['Mixed'] = evaluate_ensemble_and_stacking(mixed_pairs, mixed_labels)
+
+    # Stampa risultati
+    for split, res in results.items():
+        dyn = res['dynamic']
+        stk = res['stacking']
+        print(f"===== {split} =====")
+        print(f"Ensemble dynamic weights - Accuracy: {dyn['accuracy']:.4f}, F1: {dyn['f1']:.4f}")
+        print(f"Stacking metaclassificatore - Accuracy: {stk['accuracy']:.4f}, F1: {stk['f1']:.4f}\n")
