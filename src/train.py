@@ -4,6 +4,11 @@ import torch
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from transformers import default_data_collator
+from sentence_transformers.models import Pooling, Transformer
+from sentence_transformers import SentenceTransformer, InputExample
+from sentence_transformers.losses import ContrastiveLoss, MultipleNegativesRankingLoss, SoftmaxLoss, CoSENTLoss
+from sentence_transformers.evaluation import BinaryClassificationEvaluator
+from sentence_transformers.util import cos_sim
 from tqdm.auto import tqdm
 import time
 import datetime
@@ -11,7 +16,7 @@ import datetime
 
 from peft import get_peft_config, get_peft_model, LoraConfig, TaskType
 
-from data_loader import get_datasets
+from datasets import load_dataset
 from model import get_model, MODEL_NAME  # Importa anche MODEL_NAME
 from config import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR, DATASET_NAME
 
@@ -21,27 +26,55 @@ from sentence_transformers.losses import ContrastiveLoss
 from sentence_transformers.evaluation import BinaryClassificationEvaluator
 from hf_utils import save_to_hf
 
+def train(model_name, dataset_name, element_name):
+    # Define model
+    ## Step 1: use an existing language model
+    word_embedding_model = Transformer(model_name)
 
-""" def train2():
+    ## Step 2: use a pool function over the token embeddings
+    pooling_model = Pooling(word_embedding_model.get_word_embedding_dimension(), 
+                                pooling_mode = 'cls',
+                                pooling_mode_cls_token=True, 
+                                pooling_mode_mean_tokens = False)
+
+    ## Join steps 1 and 2 using the modules argument
+    model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
+    # CONFIGURA LORA
+    peft_config = LoraConfig(
+        task_type=TaskType.SEQ_CLS,
+        inference_mode=False,
+        r=8,
+        lora_alpha=32,
+        target_modules=["query", "value"]
+    )
+    model.add_adapter(peft_config)
+
+    dataset = load_dataset("glue", dataset_name)
 
     # Format training data
     train_examples = []
     for example in dataset['train']:
-        train_examples.append(InputExample(texts=[example['sentence1'], example['sentence2']], label=float(example['label'])))
+        train_examples.append(InputExample(texts=[example[element_name+'1'], example[element_name+'2']], label=float(example['label'])))
 
     train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=4)
 
     train_loss = ContrastiveLoss(model=model)
+    # (anchor, positive), (anchor, positive, negative)
+    mnrl_loss = MultipleNegativesRankingLoss(model)
+    # (sentence_A, sentence_B) + class
+    softmax_loss = SoftmaxLoss(model, model.get_sentence_embedding_dimension(), 3)
+    # (sentence_A, sentence_B) + score
+    cosent_loss = CoSENTLoss(model)
 
     # Format evaluation data
     sentences1 = []
     sentences2 = []
     scores = []
     for example in dataset['validation']:
-        sentences1.append(example['sentence1'])
-        sentences2.append(example['sentence2'])
+        sentences1.append(example[element_name+'1'])
+        sentences2.append(example[element_name+'2'])
         scores.append(float(example['label']))
-
+    
     evaluator = BinaryClassificationEvaluator(sentences1, sentences2, scores)
 
     # Start training
@@ -49,22 +82,17 @@ from hf_utils import save_to_hf
         train_objectives=[(train_dataloader, train_loss)], 
         evaluator=evaluator,
         evaluation_steps=500,
-        epochs=1, 
+        epochs=EPOCHS, 
         warmup_steps=0,
         output_path='./sentence_transformer/',
         weight_decay=0.01,
-        optimizer_params={'lr': 0.00004},
+        optimizer_params={'lr': LEARNING_RATE},
         save_best_model=True,
         show_progress_bar=True,
     )
 
-    sentences = ['This is just a random sentence on a friday evenning', 'to test model ability.']
-
-    #Sentences are encoded by calling model.encode()
-    embeddings = model.encode(sentences)
-
-    print(embeddings) """
-
+    model.save(f"../outputs/{model_name}-{dataset_name}")
+"""
 def train():
     # Carica dataset e modello
     dataset = get_datasets()
@@ -137,7 +165,7 @@ def train():
         show_progress_bar=True,
     )
 
-    """ for epoch in range(EPOCHS):
+    for epoch in range(EPOCHS):
         start = time.time()
         model.train()
         total_loss = 0.0
@@ -188,7 +216,7 @@ def train():
             model.save_pretrained(adapter_dir_epoch)
             print(f"✔️  LoRA adapter (epoch {epoch+1}) salvato in: {adapter_dir_epoch}")
             save_to_hf(adapter_dir_epoch, repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME}-{DATASET_NAME}-epoch-{epoch+1}")
- """
+ 
 
     # Salvataggio del solo LoRA adapter finale
     os.makedirs(SAVE_DIR, exist_ok=True)
@@ -206,8 +234,9 @@ def train():
     print(f"✔️ Modello cross‑encoder salvato in: {pth_path}")
 
     # Upload su Hugging Face Hub dell'adapter finale
-    save_to_hf(adapter_dir_final, repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME}-{DATASET_NAME}-final")
+    save_to_hf(adapter_dir_final, repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME}-{DATASET_NAME}-final") """
 
 
 if __name__ == "__main__":
-    train()
+    train('distilroberta-base', 'mrpc', 'sentence')
+    train('distilroberta-base', 'qqp', 'question')
