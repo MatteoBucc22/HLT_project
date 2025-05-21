@@ -10,7 +10,11 @@ from peft import PeftModel
 from data_loader import get_datasets
 from model import get_model
 from config import DEVICE, BATCH_SIZE, MODEL_NAME
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.evaluation import BinaryClassificationEvaluator
+from sentence_transformers.util import cos_sim
 from sklearn.metrics import accuracy_score, f1_score
+from datasets import load_dataset
 
 def evaluate(model, dataloader):
 
@@ -36,34 +40,29 @@ def main():
     parser.add_argument("--checkpoint", type=str, required=True,
                         help="Path al file .pth (cross‑encoder) o alla cartella LORA adapter")
     parser.add_argument("--batch_size", type=int, default=BATCH_SIZE)
+    parser.add_argument("--dataset_name", type=str, default="qqp")
+    parser.add_argument("--element_name", type=str, default="question")
     args = parser.parse_args()
+    
+    dataset = load_dataset("glue", args.dataset_name)
+    # Format evaluation data
+    sentences1 = []
+    sentences2 = []
+    scores = []
+    for example in dataset['validation']:
+        sentences1.append(example[args.element_name+'1'])
+        sentences2.append(example[args.element_name+'2'])
+        scores.append(float(example['label']))
+        if (example['label'] != 0 and example['label'] != 1): print(example)
+    
+    evaluator = BinaryClassificationEvaluator(sentences1, sentences2, scores)
 
-    # Carica il tokenizer e il dataset
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    ds = get_datasets()
-    test_loader = DataLoader(
-        ds["test"], batch_size=args.batch_size,
-        shuffle=False, collate_fn=default_data_collator
-    )
-    print("✔️  Dataset test caricato:", len(ds["test"]), "esempi")
+    model = SentenceTransformer.load(args.checkpoint)
+    
+    results = evaluator(model)
 
-    # Decido se è un file .pth o una cartella
-    ckpt = args.checkpoint
-    base_model = get_model()
-    if os.path.isdir(ckpt):
-        # Modalità LoRA adapter
-        print("⚙️  Carico LoRA adapter da:", ckpt)
-        model = PeftModel.from_pretrained(base_model, ckpt, safe_serialization=True)
-    else:
-        # Modalità Cross‑Encoder .pth
-        print("⚙️  Carico Cross‑Encoder state_dict da:", ckpt)
-        model = base_model
-        state = torch.load(ckpt, map_location=DEVICE)
-        model.load_state_dict(state)
+    print(results)
 
-    model.to(DEVICE)
-    print("✔️  Modello pronto, inizio evaluation…")
-    evaluate(model, test_loader)
 
 if __name__ == "__main__":
     main()

@@ -12,6 +12,7 @@ from sentence_transformers.util import cos_sim
 from tqdm.auto import tqdm
 import time
 import datetime
+from random import sample
 
 
 from peft import get_peft_config, get_peft_model, LoraConfig, TaskType
@@ -56,7 +57,7 @@ def train(model_name, dataset_name, element_name):
     for example in dataset['train']:
         train_examples.append(InputExample(texts=[example[element_name+'1'], example[element_name+'2']], label=float(example['label'])))
 
-    train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=4)
+    train_dataloader = DataLoader(sample(train_examples, 5000) if len(train_examples) > 5000 else train_examples, shuffle=True, batch_size=4)
 
     train_loss = ContrastiveLoss(model=model)
     # (anchor, positive), (anchor, positive, negative)
@@ -75,7 +76,7 @@ def train(model_name, dataset_name, element_name):
         sentences2.append(example[element_name+'2'])
         scores.append(float(example['label']))
     
-    evaluator = BinaryClassificationEvaluator(sentences1, sentences2, scores)
+    evaluator = BinaryClassificationEvaluator(sentences1[:500], sentences2[:500], scores[:500])
 
     # Start training
     model.fit(
@@ -238,5 +239,5 @@ def train():
 
 
 if __name__ == "__main__":
-    train('distilroberta-base', 'mrpc', 'sentence')
+    #train('distilroberta-base', 'mrpc', 'sentence')
     train('distilroberta-base', 'qqp', 'question')
