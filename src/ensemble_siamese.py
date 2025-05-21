@@ -6,22 +6,19 @@ from datasets import load_dataset
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, f1_score
 from sklearn.model_selection import train_test_split
-from transformers import AutoTokenizer, AutoModel
+from sentence_transformers import SentenceTransformer
 from peft import PeftModel
-from torch.nn.functional import cosine_similarity
 from hf_utils import save_to_hf
 from config import DEVICE, BATCH_SIZE
 
-# Configurazione dei modelli Siamese (PEFT adapter + base)
+# Configurazione dei modelli Siamese (PEFT adapter + pooling)
 MODEL_INFOS = {
     "siamese-qqp": {
         "type": "siamese",
-        "base": "distilroberta-base",
         "adapter_path": "../models/distilroberta-base-qqp/"
     },
     "siamese-mrpc": {
         "type": "siamese",
-        "base": "distilroberta-base",
         "adapter_path": "../models/distilroberta-base-mrpc/"
     }
 }
@@ -32,13 +29,19 @@ os.makedirs(ARTIFACT_DIR, exist_ok=True)
 
 def predict_probs_siamese(info, pairs):
     """
-    Carica il tokenizer e l’adapter PEFT su base AutoModel,
-    estrae CLS token embeddings e calcola cosine similarity → probabilità.
+    Carica la pipeline completa SentenceTransformer (tokenizer, transformer, pooling)
+    e sostituisce solo il transformer con la versione PEFT + base_model.
+    Restituisce probabilità [non-parafrasi, parafrasi].
     """
-    tokenizer = AutoTokenizer.from_pretrained(info["adapter_path"])
-    # Carico il base model e poi applico l’adapter
-    base_model = AutoModel.from_pretrained(info["base"]).to(DEVICE)
-    model = PeftModel.from_pretrained(base_model, info["adapter_path"]).to(DEVICE).eval()
+    # 1) Carica pipeline ST (tokenizer + transformer + pooling)
+    model = SentenceTransformer(info["adapter_path"], device=DEVICE)
+    
+    # 2) Estrai il modulo Transformer e sostituisci il suo auto_model con PEFT
+    transformer_module = model._first_module()  # solitamente è il TransformerModule
+    peft_base = PeftModel.from_pretrained(transformer_module.auto_model, info["adapter_path"])
+    peft_base.to(DEVICE)
+    transformer_module.auto_model = peft_base
+    model.eval()
 
     all_probs = []
     for i in range(0, len(pairs), BATCH_SIZE):
@@ -46,22 +49,16 @@ def predict_probs_siamese(info, pairs):
         texts1 = [p[0] for p in batch]
         texts2 = [p[1] for p in batch]
 
-        # tokenizziamo separatamente
-        inputs1 = tokenizer(texts1, padding=True, truncation=True, return_tensors="pt").to(DEVICE)
-        inputs2 = tokenizer(texts2, padding=True, truncation=True, return_tensors="pt").to(DEVICE)
+        # 3) Ottieni embeddings (include pooling definito in 1_Pooling/)
+        emb1 = model.encode(texts1, convert_to_tensor=True, device=DEVICE)
+        emb2 = model.encode(texts2, convert_to_tensor=True, device=DEVICE)
 
-        with torch.no_grad():
-            # estraggo gli embeddings CLS dal base_model (senza passare labels)
-            emb1 = model.base_model(**inputs1).last_hidden_state[:, 0]
-            emb2 = model.base_model(**inputs2).last_hidden_state[:, 0]
+        # 4) Cosine similarity → da [-1,1] a [0,1]
+        sims = torch.nn.functional.cosine_similarity(emb1, emb2, dim=1)
+        sims = (sims + 1) / 2
 
-            # cosine similarity fra i due embeddings
-            sims = cosine_similarity(emb1, emb2, dim=1)  # [-1,1]
-            sims = (sims + 1) / 2  # → [0,1]
-
-            # Probabilità [not-paraphrase, paraphrase]
-            probs_batch = torch.stack([1 - sims, sims], dim=1).cpu().numpy()
-
+        # 5) Probabilità: [not-paraphrase, paraphrase]
+        probs_batch = torch.stack([1 - sims, sims], dim=1).cpu().numpy()
         all_probs.append(probs_batch)
         torch.cuda.empty_cache()
 
@@ -89,62 +86,68 @@ def evaluate_ensemble_and_stacking(pairs, labels):
         pairs, labels, test_size=0.3, random_state=42
     )
 
-    # 1) predizioni sui train e val per ogni modello
+    # 1) Predizioni su train e val per ciascun modello
     probs_train = [predict_probs(info, pairs_train) for info in MODEL_INFOS.values()]
     probs_val   = [predict_probs(info, pairs_val)   for info in MODEL_INFOS.values()]
 
-    # 2) calcolo pesi dinamici da validation
+    # 2) Calcolo pesi dinamici (F1-weighted)
     weights = compute_dynamic_weights(probs_val, y_val)
     np.save(os.path.join(ARTIFACT_DIR, "dynamic_weights.npy"), weights)
 
-    # 3) stacking metaclassificatore
+    # 3) Stacking metaclassificatore
     X_stack = np.hstack(probs_train)
     meta_clf = LogisticRegression(max_iter=1000)
     meta_clf.fit(X_stack, y_train)
     joblib.dump(meta_clf, os.path.join(ARTIFACT_DIR, "stacking_meta_clf.joblib"))
 
-    # 4) valutazione su tutti i dati (train+val)
+    # 4) Valutazione su train+val
     all_pairs  = pairs_train + pairs_val
     all_labels = np.concatenate([y_train, y_val])
     all_probs  = [predict_probs(info, all_pairs) for info in MODEL_INFOS.values()]
 
-    # ensemble weighted
+    # Ensemble dinamico
     weighted = sum(w * p for w, p in zip(weights, all_probs))
-    preds_ens  = np.argmax(weighted, axis=1)
-    # stacking
-    X_meta    = np.hstack(all_probs)
+    preds_ens = np.argmax(weighted, axis=1)
+
+    # Stacking
+    X_meta      = np.hstack(all_probs)
     preds_stack = meta_clf.predict(X_meta)
 
     return {
-        "dynamic":  {"accuracy": accuracy_score(all_labels, preds_ens),
-                     "f1":       f1_score(all_labels, preds_ens)},
-        "stacking": {"accuracy": accuracy_score(all_labels, preds_stack),
-                     "f1":       f1_score(all_labels, preds_stack)}
+        "dynamic":  {
+            "accuracy": accuracy_score(all_labels, preds_ens),
+            "f1":       f1_score(all_labels, preds_ens)
+        },
+        "stacking": {
+            "accuracy": accuracy_score(all_labels, preds_stack),
+            "f1":       f1_score(all_labels, preds_stack)
+        }
     }
 
 
 if __name__ == "__main__":
     results = {}
 
-    qqp   = load_dataset("glue", "qqp", split="validation")
-    qqp_pairs  = [(ex["question1"], ex["question2"]) for ex in qqp]
-    qqp_labels = np.array(qqp["label"])
-    results["QQP"] = evaluate_ensemble_and_stacking(qqp_pairs, qqp_labels)
+    # QQP
+    qqp       = load_dataset("glue", "qqp", split="validation")
+    qqp_pairs = [(ex["question1"], ex["question2"]) for ex in qqp]
+    qqp_lbls  = np.array(qqp["label"])
+    results["QQP"] = evaluate_ensemble_and_stacking(qqp_pairs, qqp_lbls)
 
-    mrpc   = load_dataset("glue", "mrpc", split="validation")
-    mrpc_pairs  = [(ex["sentence1"], ex["sentence2"]) for ex in mrpc]
-    mrpc_labels = np.array(mrpc["label"])
-    results["MRPC"] = evaluate_ensemble_and_stacking(mrpc_pairs, mrpc_labels)
+    # MRPC
+    mrpc       = load_dataset("glue", "mrpc", split="validation")
+    mrpc_pairs = [(ex["sentence1"], ex["sentence2"]) for ex in mrpc]
+    mrpc_lbls  = np.array(mrpc["label"])
+    results["MRPC"] = evaluate_ensemble_and_stacking(mrpc_pairs, mrpc_lbls)
 
     # Mixed
     mixed_pairs  = qqp_pairs + mrpc_pairs
-    mixed_labels = np.concatenate([qqp_labels, mrpc_labels])
+    mixed_labels = np.concatenate([qqp_lbls, mrpc_lbls])
     results["Mixed"] = evaluate_ensemble_and_stacking(mixed_pairs, mixed_labels)
 
     # Stampa risultati
     for split, res in results.items():
-        d = res["dynamic"]
-        s = res["stacking"]
+        d, s = res["dynamic"], res["stacking"]
         print(f"===== {split} =====")
         print(f"Ensemble dynamic weights - Accuracy: {d['accuracy']:.4f}, F1: {d['f1']:.4f}")
         print(f"Stacking metaclassificatore - Accuracy: {s['accuracy']:.4f}, F1: {s['f1']:.4f}\n")
