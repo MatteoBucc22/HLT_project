@@ -4,3 +4,4 @@ datasets
 scikit-learn
 huggingface_hub
 scikit-learn
+sentence-transformers
