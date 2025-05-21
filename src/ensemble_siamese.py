@@ -17,12 +17,12 @@ MODEL_INFOS = {
     "siamese-qqp": {
         "type": "siamese",
         "base": "distilroberta-base",
-        "adapter_path": "/mnt/data/siamese_models/distilroberta-base-qqp/"
+        "adapter_path": "../models/distilroberta-base-qqp/"
     },
     "siamese-mrpc": {
         "type": "siamese",
         "base": "distilroberta-base",
-        "adapter_path": "/mnt/data/siamese_models/distilroberta-base-mrpc/"
+        "adapter_path": "../models/distilroberta-base-mrpc/"
     }
 }
 
