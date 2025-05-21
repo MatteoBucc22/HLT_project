@@ -27,6 +27,23 @@ MODEL_INFOS = {
 ARTIFACT_DIR = "ensemble_artifacts"
 os.makedirs(ARTIFACT_DIR, exist_ok=True)
 
+from sklearn.metrics import f1_score
+
+def find_best_threshold(sims, labels, num_steps=101):
+    """
+    sims: array shape (N,) di similarità [0,1] per la classe positiva
+    labels: array binaria shape (N,)
+    Restituisce (best_tau, best_f1)
+    """
+    best_tau, best_f1 = 0.0, 0.0
+    for tau in np.linspace(0, 1, num_steps):
+        preds = (sims >= tau).astype(int)
+        f1 = f1_score(labels, preds)
+        if f1 > best_f1:
+            best_f1, best_tau = f1, tau
+    return best_tau, best_f1
+
+
 
 def mean_pool(token_embeddings: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
     mask = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
@@ -91,41 +108,52 @@ def compute_dynamic_weights(probs_list, true_labels):
 
 
 def evaluate_ensemble_and_stacking(pairs, labels):
-    pairs_tr, pairs_val, y_tr, y_val = train_test_split(
+    pairs_train, pairs_val, y_train, y_val = train_test_split(
         pairs, labels, test_size=0.3, random_state=42
     )
 
-    # previsioni train & val
-    p_train = [predict_probs(info, pairs_tr) for info in MODEL_INFOS.values()]
-    p_val   = [predict_probs(info, pairs_val)   for info in MODEL_INFOS.values()]
+    # 1) predizioni train & val
+    probs_train = [predict_probs(info, pairs_train) for info in MODEL_INFOS.values()]
+    probs_val   = [predict_probs(info, pairs_val)   for info in MODEL_INFOS.values()]
 
-    # pesi dinamici
-    weights = compute_dynamic_weights(p_val, y_val)
+    # 2) calcolo pesi dinamici (F1-weighted)
+    weights = compute_dynamic_weights(probs_val, y_val)
     np.save(os.path.join(ARTIFACT_DIR, "dynamic_weights.npy"), weights)
 
-    # stacking
-    X_tr = np.hstack(p_train)
-    meta = LogisticRegression(max_iter=1000).fit(X_tr, y_tr)
-    joblib.dump(meta, os.path.join(ARTIFACT_DIR, "stacking_meta_clf.joblib"))
+    # 3) stacking standard
+    X_stack_tr = np.hstack(probs_train)
+    meta_clf = LogisticRegression(max_iter=1000)
+    meta_clf.fit(X_stack_tr, y_train)
+    joblib.dump(meta_clf, os.path.join(ARTIFACT_DIR, "stacking_meta_clf.joblib"))
 
-    # valutazione su train+val
-    all_pairs  = pairs_tr + pairs_val
-    all_labels = np.concatenate([y_tr, y_val])
-    p_all      = [predict_probs(info, all_pairs) for info in MODEL_INFOS.values()]
+    # 4) ensemble dinamico: combina tutte le predizioni
+    all_pairs  = pairs_train + pairs_val
+    all_labels = np.concatenate([y_train, y_val])
+    probs_all  = [predict_probs(info, all_pairs) for info in MODEL_INFOS.values()]
+    weighted   = sum(w * p for w, p in zip(weights, probs_all))  # shape (N_all, 2)
 
-    # ensemble dinamico
-    ens_probs = sum(w * p for w, p in zip(weights, p_all))
-    ens_pred  = np.argmax(ens_probs, axis=1)
+    # 5) calibrazione soglia sul validation
+    sims_val = weighted[: len(pairs_val), 1]  # prendiamo solo la prob. della classe “paraphrase”
+    best_tau, best_f1 = find_best_threshold(sims_val, y_val)
+    print(f"[Calibration] Best τ = {best_tau:.2f}, F1_val = {best_f1:.4f}")
 
-    # stacking
-    X_all     = np.hstack(p_all)
-    stk_pred  = meta.predict(X_all)
+    # 6) predizioni ensemble con τ ottimale
+    sims_all = weighted[:, 1]
+    preds_ens = (sims_all >= best_tau).astype(int)
+
+    # 7) stacking standard su train+val
+    X_stack_all = np.hstack(probs_all)
+    preds_stack = meta_clf.predict(X_stack_all)
 
     return {
-        "dynamic":  {"accuracy": accuracy_score(all_labels, ens_pred),
-                     "f1":       f1_score(all_labels, ens_pred)},
-        "stacking": {"accuracy": accuracy_score(all_labels, stk_pred),
-                     "f1":       f1_score(all_labels, stk_pred)}
+        "dynamic": {
+            "accuracy": accuracy_score(all_labels, preds_ens),
+            "f1":       f1_score(all_labels, preds_ens)
+        },
+        "stacking": {
+            "accuracy": accuracy_score(all_labels, preds_stack),
+            "f1":       f1_score(all_labels, preds_stack)
+        }
     }
 
 
