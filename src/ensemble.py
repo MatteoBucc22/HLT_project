@@ -4,7 +4,7 @@ import numpy as np
 import joblib
 from datasets import load_dataset
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
 from sklearn.model_selection import train_test_split
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from peft import PeftModel
@@ -21,7 +21,6 @@ MODEL_INFOS = {
 
 ARTIFACT_DIR = "ensemble_artifacts"
 os.makedirs(ARTIFACT_DIR, exist_ok=True)
-
 
 def predict_probs(info, pairs):
     tokenizer = AutoTokenizer.from_pretrained(info.get('base'))
@@ -43,7 +42,6 @@ def predict_probs(info, pairs):
         torch.cuda.empty_cache()
     return np.vstack(all_probs)
 
-
 def compute_dynamic_weights(probs_list, true_labels):
     f1s = []
     for probs in probs_list:
@@ -52,65 +50,76 @@ def compute_dynamic_weights(probs_list, true_labels):
     f1s = np.array(f1s)
     return f1s / f1s.sum()
 
+def evaluate_ensemble_and_stacking(pairs, labels, split_name=""):
+    pairs_train, pairs_val, y_train, y_val = train_test_split(
+        pairs, labels, test_size=0.3, random_state=42)
 
-def evaluate_ensemble_and_stacking(pairs, labels):
-    pairs_train, pairs_val, y_train, y_val = train_test_split(pairs, labels, test_size=0.3, random_state=42)
-
+    # Predizioni
     probs_train = [predict_probs(info, pairs_train) for info in MODEL_INFOS.values()]
     probs_val = [predict_probs(info, pairs_val) for info in MODEL_INFOS.values()]
     weights = compute_dynamic_weights(probs_val, y_val)
 
     # Salvataggio pesi dinamici
-    weights_path = os.path.join(ARTIFACT_DIR, "dynamic_weights.npy")
-    np.save(weights_path, weights)
+    np.save(os.path.join(ARTIFACT_DIR, f"dynamic_weights_{split_name}.npy"), weights)
 
     # Stacking metaclassificatore
     X_stack = np.hstack(probs_train)
     meta_clf = LogisticRegression(max_iter=1000)
     meta_clf.fit(X_stack, y_train)
+    joblib.dump(meta_clf, os.path.join(ARTIFACT_DIR, f"stacking_meta_clf_{split_name}.joblib"))
 
-    # Salvataggio del meta-classificatore
-    clf_path = os.path.join(ARTIFACT_DIR, "stacking_meta_clf.joblib")
-    joblib.dump(meta_clf, clf_path)
-
+    # Predizioni su tutto il set
     all_pairs = pairs_train + pairs_val
     all_labels = np.concatenate([y_train, y_val])
     all_probs = [predict_probs(info, all_pairs) for info in MODEL_INFOS.values()]
 
+    # Ensemble dinamico
     weighted_probs = sum(w * p for w, p in zip(weights, all_probs))
     preds_ens = np.argmax(weighted_probs, axis=1)
 
+    # Stacking
     X_meta = np.hstack(all_probs)
     preds_stack = meta_clf.predict(X_meta)
 
+    # Matrici di confusione
+    cm_ens = confusion_matrix(all_labels, preds_ens)
+    cm_stack = confusion_matrix(all_labels, preds_stack)
+    np.save(os.path.join(ARTIFACT_DIR, f"cm_ensemble_{split_name}.npy"), cm_ens)
+    np.save(os.path.join(ARTIFACT_DIR, f"cm_stacking_{split_name}.npy"), cm_stack)
+
     return {
-        'dynamic': {'accuracy': accuracy_score(all_labels, preds_ens), 'f1': f1_score(all_labels, preds_ens)},
-        'stacking': {'accuracy': accuracy_score(all_labels, preds_stack), 'f1': f1_score(all_labels, preds_stack)}
+        'dynamic': {'accuracy': accuracy_score(all_labels, preds_ens), 'f1': f1_score(all_labels, preds_ens), 'confusion_matrix': cm_ens},
+        'stacking': {'accuracy': accuracy_score(all_labels, preds_stack), 'f1': f1_score(all_labels, preds_stack), 'confusion_matrix': cm_stack}
     }
 
 if __name__ == '__main__':
     results = {}
+    # QQP
     qqp = load_dataset('glue', 'qqp', split='validation')
     qqp_pairs = [(ex['question1'], ex['question2']) for ex in qqp]
     qqp_labels = np.array(qqp['label'])
-    results['QQP'] = evaluate_ensemble_and_stacking(qqp_pairs, qqp_labels)
+    results['QQP'] = evaluate_ensemble_and_stacking(qqp_pairs, qqp_labels, split_name="qqp")
 
+    # MRPC
     mrpc = load_dataset('glue', 'mrpc', split='validation')
     mrpc_pairs = [(ex['sentence1'], ex['sentence2']) for ex in mrpc]
     mrpc_labels = np.array(mrpc['label'])
-    results['MRPC'] = evaluate_ensemble_and_stacking(mrpc_pairs, mrpc_labels)
+    results['MRPC'] = evaluate_ensemble_and_stacking(mrpc_pairs, mrpc_labels, split_name="mrpc")
 
+    # Mixed
     mixed_pairs = qqp_pairs + mrpc_pairs
     mixed_labels = np.concatenate([qqp_labels, mrpc_labels])
-    results['Mixed'] = evaluate_ensemble_and_stacking(mixed_pairs, mixed_labels)
+    results['Mixed'] = evaluate_ensemble_and_stacking(mixed_pairs, mixed_labels, split_name="mixed")
 
-    # Stampa risultati
+    # Stampa risultati e matrici
     for split, res in results.items():
         dyn = res['dynamic']
         stk = res['stacking']
         print(f"===== {split} =====")
         print(f"Ensemble dynamic weights - Accuracy: {dyn['accuracy']:.4f}, F1: {dyn['f1']:.4f}")
-        print(f"Stacking metaclassificatore - Accuracy: {stk['accuracy']:.4f}, F1: {stk['f1']:.4f}\n")
+        print(f"Confusion Matrix (Ensemble):\n{dyn['confusion_matrix']}\n")
+        print(f"Stacking metaclassificatore - Accuracy: {stk['accuracy']:.4f}, F1: {stk['f1']:.4f}")
+        print(f"Confusion Matrix (Stacking):\n{stk['confusion_matrix']}\n")
 
     # Upload su Hugging Face
-    save_to_hf(ARTIFACT_DIR, repo_id="MatteoBucc/ensemble-artifacts", commit_msg="Ensemble dynamic weights e stacking artifacts")
+    save_to_hf(ARTIFACT_DIR, repo_id="MatteoBucc/ensemble-artifacts", commit_msg="Added confusion matrices for ensemble and stacking")
