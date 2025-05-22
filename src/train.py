@@ -7,7 +7,7 @@ from transformers import default_data_collator
 from sentence_transformers.models import Pooling, Transformer
 from sentence_transformers import SentenceTransformer, InputExample
 from sentence_transformers.losses import ContrastiveLoss, MultipleNegativesRankingLoss, SoftmaxLoss, CoSENTLoss
-from sentence_transformers.evaluation import BinaryClassificationEvaluator
+from sentence_transformers.evaluation import BinaryClassificationEvaluator, TripletEvaluator
 from sentence_transformers.util import cos_sim
 from tqdm.auto import tqdm
 import time
@@ -27,7 +27,7 @@ from sentence_transformers.losses import ContrastiveLoss
 from sentence_transformers.evaluation import BinaryClassificationEvaluator
 from hf_utils import save_to_hf
 
-def train(model_name, dataset_name, element_name):
+def train(model_name, dataset_name, element_name, is_triplet = False):
     # Define model
     ## Step 1: use an existing language model
     word_embedding_model = Transformer(model_name)
@@ -50,7 +50,10 @@ def train(model_name, dataset_name, element_name):
     )
     model.add_adapter(peft_config)
 
-    dataset = load_dataset("glue", dataset_name)
+    if is_triplet:
+        dataset = load_dataset(dataset_name, "triplet")
+    else:
+        dataset = load_dataset("glue", dataset_name)
 
     # Format training data
     train_examples = []
@@ -59,24 +62,33 @@ def train(model_name, dataset_name, element_name):
 
     train_dataloader = DataLoader(sample(train_examples, 5000) if len(train_examples) > 5000 else train_examples, shuffle=True, batch_size=4)
 
-    train_loss = ContrastiveLoss(model=model)
-    # (anchor, positive), (anchor, positive, negative)
-    mnrl_loss = MultipleNegativesRankingLoss(model)
+    if is_triplet:
+        # (anchor, positive), (anchor, positive, negative)
+        mnrl_loss = MultipleNegativesRankingLoss(model)
+    else:
+        train_loss = ContrastiveLoss(model=model)
     # (sentence_A, sentence_B) + class
     softmax_loss = SoftmaxLoss(model, model.get_sentence_embedding_dimension(), 3)
     # (sentence_A, sentence_B) + score
     cosent_loss = CoSENTLoss(model)
 
-    # Format evaluation data
-    sentences1 = []
-    sentences2 = []
-    scores = []
-    for example in dataset['validation']:
-        sentences1.append(example[element_name+'1'])
-        sentences2.append(example[element_name+'2'])
-        scores.append(float(example['label']))
-    
-    evaluator = BinaryClassificationEvaluator(sentences1[:500], sentences2[:500], scores[:500])
+    if is_triplet:
+        test_evaluator = TripletEvaluator(
+            anchors=dataset['dev']["anchor"],
+            positives=dataset['dev']["positive"],
+            negatives=dataset['dev']["negative"],
+        )
+    else:
+        # Format evaluation data
+        sentences1 = []
+        sentences2 = []
+        scores = []
+        for example in dataset['validation']:
+            sentences1.append(example[element_name+'1'])
+            sentences2.append(example[element_name+'2'])
+            scores.append(float(example['label']))
+        
+        evaluator = BinaryClassificationEvaluator(sentences1[:500], sentences2[:500], scores[:500])
 
     # Start training
     model.fit(
@@ -84,15 +96,14 @@ def train(model_name, dataset_name, element_name):
         evaluator=evaluator,
         evaluation_steps=500,
         epochs=EPOCHS, 
-        warmup_steps=0,
-        output_path='./sentence_transformer/',
+        warmup_steps=int(len(train_dataloader.dataset) / 10),
         weight_decay=0.01,
         optimizer_params={'lr': LEARNING_RATE},
+        output_path=f"../outputs/{model_name}-{dataset_name}",
         save_best_model=True,
         show_progress_bar=True,
     )
 
-    model.save(f"../outputs/{model_name}-{dataset_name}")
 """
 def train():
     # Carica dataset e modello
@@ -239,5 +250,8 @@ def train():
 
 
 if __name__ == "__main__":
-    #train('distilroberta-base', 'mrpc', 'sentence')
-    train('distilroberta-base', 'qqp', 'question')
+    train('roberta-base', 'mrpc', 'sentence')
+    train('roberta-base', 'qqp', 'question')
+    
+    train('sentence-transformers/all-MiniLM-L6-v2', 'mrpc', 'sentence')
+    train('sentence-transformers/all-MiniLM-L6-v2', 'qqp', 'question')
