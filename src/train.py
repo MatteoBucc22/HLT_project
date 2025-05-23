@@ -7,16 +7,30 @@ import random
 
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
-from transformers import default_data_collator
+from torch.nn.utils import clip_grad_norm_
+from transformers import default_data_collator, get_linear_schedule_with_warmup
 from tqdm.auto import tqdm
 from sklearn.metrics import accuracy_score, f1_score
 
 from peft import get_peft_model, LoraConfig, TaskType, PeftModel
-from config import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR, DATASET_NAME
-from model import get_model, MODEL_NAME
+from config import (
+    DEVICE,
+    BATCH_SIZE,
+    LEARNING_RATE,
+    EPOCHS,
+    SAVE_DIR,
+    DATASET_NAME,
+    MODEL_NAME,
+    TOTAL_TRAIN_STEPS,
+    WARMUP_STEPS,
+    WEIGHT_DECAY,
+    GRAD_CLIP_NORM
+)
+from model import get_model
 from data_loader import get_datasets
 from hf_utils import save_to_hf
 
+# reproducibility
 def set_seed(seed=42):
     random.seed(seed)
     np.random.seed(seed)
@@ -25,19 +39,18 @@ def set_seed(seed=42):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
+
 def generate_embeddings(model, dataloader, save_path, repo_id=None):
     model.eval()
-    all_embeddings = []
-    all_labels = []
-
+    all_embeddings, all_labels = [], []
     with torch.no_grad():
         for batch in tqdm(dataloader, desc="🔍 Generating Embeddings"):
-            labels = batch["labels"]
+            labels = batch.pop("labels")
             batch = {k: v.to(DEVICE) for k, v in batch.items()}
             outputs = model.base_model(**batch, output_hidden_states=True, return_dict=True)
-            cls_embeddings = outputs.hidden_states[-1][:, 0, :]
-            all_embeddings.append(cls_embeddings.cpu())
-            all_labels.extend(labels)
+            cls_emb = outputs.hidden_states[-1][:, 0, :]
+            all_embeddings.append(cls_emb.cpu())
+            all_labels.extend(labels.tolist())
 
     all_embeddings = torch.cat(all_embeddings)
     all_labels = torch.tensor(all_labels)
@@ -51,11 +64,13 @@ def generate_embeddings(model, dataloader, save_path, repo_id=None):
         save_to_hf(save_path, repo_id=repo_id)
         print("✔️ Embeddings caricati su Hugging Face")
 
+
 def train(resume_from=None, start_epoch=0):
-    set_seed(42)
+    set_seed()
     dataset = get_datasets()
     base_model = get_model().to(DEVICE)
 
+    # load or init PEFT model
     if resume_from and os.path.isdir(resume_from):
         print(f"📦 Caricamento modello da checkpoint: {resume_from}")
         model = PeftModel.from_pretrained(base_model, resume_from)
@@ -73,102 +88,102 @@ def train(resume_from=None, start_epoch=0):
     model.print_trainable_parameters()
 
     train_loader = DataLoader(
-        dataset["train"],
-        batch_size=BATCH_SIZE,
-        shuffle=True,
-        num_workers=4,
-        pin_memory=True,
-        collate_fn=default_data_collator
+        dataset['train'], batch_size=BATCH_SIZE, shuffle=True,
+        num_workers=4, pin_memory=True, collate_fn=default_data_collator
     )
     val_loader = DataLoader(
-        dataset["validation"],
-        batch_size=BATCH_SIZE,
-        num_workers=4,
-        pin_memory=True,
-        collate_fn=default_data_collator
+        dataset['validation'], batch_size=BATCH_SIZE,
+        num_workers=4, pin_memory=True, collate_fn=default_data_collator
     )
 
     optimizer = AdamW(
         filter(lambda p: p.requires_grad, model.parameters()),
-        lr=LEARNING_RATE
+        lr=LEARNING_RATE,
+        betas=(0.9, 0.999),
+        weight_decay=WEIGHT_DECAY
     )
 
-    use_amp = True
-    scaler = torch.cuda.amp.GradScaler() if use_amp else None
+    # total steps and scheduler
+    scheduler = get_linear_schedule_with_warmup(
+        optimizer,
+        num_warmup_steps=WARMUP_STEPS,
+        num_training_steps=TOTAL_TRAIN_STEPS
+    )
 
+    scaler = torch.cuda.amp.GradScaler()
+    global_step = 0
+
+    model.train()
     for epoch in range(start_epoch, EPOCHS):
-        start = time.time()
-        model.train()
-        total_loss = 0.0
-        loop = tqdm(train_loader, desc=f"Epoch {epoch+1}", unit="batch")
-
-        for batch_idx, batch in enumerate(loop):
+        epoch_loss = 0.0
+        start_time = time.time()
+        for batch in tqdm(train_loader, desc=f"Epoch {epoch+1}"):
             batch = {k: v.to(DEVICE) for k, v in batch.items()}
             optimizer.zero_grad()
 
-            if use_amp:
-                with torch.cuda.amp.autocast():
-                    outputs = model(**batch)
-                    loss = outputs.loss
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update()
-            else:
+            with torch.cuda.amp.autocast():
                 outputs = model(**batch)
                 loss = outputs.loss
-                loss.backward()
-                optimizer.step()
+            scaler.scale(loss).backward()
 
-            total_loss += loss.item()
-            loop.set_postfix(loss=total_loss / (batch_idx + 1))
+            # gradient clipping
+            scaler.unscale_(optimizer)
+            clip_grad_norm_(model.parameters(), GRAD_CLIP_NORM)
 
-        epoch_time = time.time() - start
-        avg_loss = total_loss / len(train_loader)
-        print(f"\nEpoch {epoch+1} — Avg Train Loss: {avg_loss:.4f} — Time: {epoch_time:.1f}s")
+            scaler.step(optimizer)
+            scaler.update()
+            scheduler.step()
 
+            epoch_loss += loss.item()
+            global_step += 1
+
+            if global_step >= TOTAL_TRAIN_STEPS:
+                break
+
+        avg_loss = epoch_loss / len(train_loader)
+        elapsed = time.time() - start_time
+        print(f"\nEpoch {epoch+1} — Avg Loss: {avg_loss:.4f} — Time: {elapsed:.1f}s")
+
+        # validation
         model.eval()
-        all_preds, all_labels = [], []
+        preds, labels = [], []
         with torch.no_grad():
             for batch in val_loader:
                 batch = {k: v.to(DEVICE) for k, v in batch.items()}
-                outputs = model(**batch)
-                preds = outputs.logits.argmax(dim=1)
-                all_preds.extend(preds.cpu().tolist())
-                all_labels.extend(batch["labels"].cpu().tolist())
+                out = model(**batch)
+                pred = out.logits.argmax(dim=1)
+                preds.extend(pred.cpu().tolist())
+                labels.extend(batch['labels'].cpu().tolist())
+        acc = accuracy_score(labels, preds)
+        f1 = f1_score(labels, preds)
+        print(f"🧪 Validation — Acc: {acc:.4f} | F1: {f1:.4f}\n")
+        model.train()
 
-        acc = accuracy_score(all_labels, all_preds)
-        f1 = f1_score(all_labels, all_preds)
-        print(f"🧪 Validation — Accuracy: {acc:.4f} | F1 Score: {f1:.4f}\n")
+        if global_step >= TOTAL_TRAIN_STEPS:
+            break
 
+        # checkpoint every 2 epochs
         if (epoch + 1) % 2 == 0:
-            adapter_dir_epoch = os.path.join(SAVE_DIR, f"{MODEL_NAME.replace('/', '-')}-{DATASET_NAME}_epoch_{epoch+1}")
-            os.makedirs(adapter_dir_epoch, exist_ok=True)
-            model.save_pretrained(adapter_dir_epoch)
-            print(f"✔️  LoRA adapter (epoch {epoch+1}) salvato in: {adapter_dir_epoch}")
-            save_to_hf(adapter_dir_epoch, repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME.replace('/', '-')}-{DATASET_NAME}-epoch-{epoch+1}")
-
-    os.makedirs(SAVE_DIR, exist_ok=True)
+            ckpt_dir = os.path.join(SAVE_DIR, f"{MODEL_NAME.replace('/', '-')}-{DATASET_NAME}_ep{epoch+1}")
+            os.makedirs(ckpt_dir, exist_ok=True)
+            model.save_pretrained(ckpt_dir)
+            save_to_hf(ckpt_dir, repo_id=f"{MODEL_NAME.replace('/', '-')}-{DATASET_NAME}-ep{epoch+1}")
+            print(f"✔️ Checkpoint epoch {epoch+1} salvato in {ckpt_dir}")
+    
+    # final save
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    adapter_dir_final = os.path.join(SAVE_DIR, f"{MODEL_NAME.replace('/', '-')}-{DATASET_NAME}_lora_adapter_{ts}")
-    os.makedirs(adapter_dir_final, exist_ok=True)
-    model.save_pretrained(adapter_dir_final)
-    print(f"✔️  LoRA adapter finale salvato in: {adapter_dir_final}")
+    final_dir = os.path.join(SAVE_DIR, f"{MODEL_NAME.replace('/', '-')}-{DATASET_NAME}_final_{ts}")
+    os.makedirs(final_dir, exist_ok=True)
+    model.save_pretrained(final_dir)
+    torch.save(model.state_dict(), os.path.join(final_dir, "model_state.pth"))
+    save_to_hf(final_dir, repo_id=f"{MODEL_NAME.replace('/', '-')}-{DATASET_NAME}-final")
+    generate_embeddings(model, val_loader, final_dir, repo_id=f"{MODEL_NAME.replace('/', '-')}-{DATASET_NAME}-embeddings-{ts}")
 
-    torch.save(model.state_dict(), os.path.join(SAVE_DIR, f"{MODEL_NAME.replace('/', '-')}-{DATASET_NAME}_cross_encoder_{ts}.pth"))
 
-    save_to_hf(adapter_dir_final, repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME.replace('/', '-')}-{DATASET_NAME}-final")
-
-    generate_embeddings(
-        model,
-        val_loader,
-        save_path=adapter_dir_final,
-        repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME.replace('/', '-')}-{DATASET_NAME}-embeddings-{ts}"
-    )
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--resume_from", type=str, default=None, help="Percorso al checkpoint PEFT da cui riprendere")
-    parser.add_argument("--start_epoch", type=int, default=0, help="Epoca da cui riprendere il training")
+    parser.add_argument('--resume_from', type=str, default=None)
+    parser.add_argument('--start_epoch', type=int, default=0)
     args = parser.parse_args()
     train(resume_from=args.resume_from, start_epoch=args.start_epoch)
