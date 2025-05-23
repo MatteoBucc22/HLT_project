@@ -1,20 +1,26 @@
+# config.py
+DEVICE = 'cuda'
 
-DEVICE = "cuda"
-BATCH_SIZE = 32
-LEARNING_RATE = 1e-5
-EPOCHS = 5
-SAVE_DIR = "outputs/"
-DATASET_NAME = "qqp"
-MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-MAX_LENGTH = 64
+# Hyperparameters from MiniLM paper
+TOTAL_TRAIN_STEPS = 400_000
+WARMUP_STEPS = 4_000
+BATCH_SIZE = 1024
+LEARNING_RATE = 5e-4
+EPOCHS = 10  # approximate given step budget
 
-WEIGHT_DECAY = 0.01         # weight decay for AdamW
-WARMUP_STEPS = 100          # number of warmup steps for scheduler
-PATIENCE = 2                # epochs to wait for improvement before early stopping
-GRAD_CLIP_NORM = 1.0        # max norm for gradient clipping
+# AdamW parameters
+WEIGHT_DECAY = 0.01
+GRAD_CLIP_NORM = 1.0
 
-# Logging
-LOG_DIR = "runs/"
+# Saving & dataset
+SAVE_DIR = 'outputs/'
+DATASET_NAME = 'qqp'
+MODEL_NAME = 'sentence-transformers/all-MiniLM-L6-v2'
 
-# Seed for reproducibility
+# Logging & seed
+LOG_DIR = 'runs/'
 SEED = 42
+
+# Embedding generation
+EMB_SAVE_SUBDIR = 'validation_embeddings'
+
