@@ -14,7 +14,7 @@ from sklearn.metrics import accuracy_score, f1_score
 from data_loader import get_datasets
 from model import get_model, MODEL_NAME
 from config import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR, DATASET_NAME, SEED
-from hf_utils import save_to_hf
+from hf_utils import save_to_hf  # NOTA: funzione modificata per salvataggio solo locale
 
 def set_seed(seed):
     random.seed(seed)
@@ -123,10 +123,13 @@ def train():
         print(f"🧪 Validation — Accuracy: {acc:.4f} | F1 Score: {f1:.4f}\n")
 
         if acc > best_acc:
+            print(f"🏆 NUOVO MIGLIOR MODELLO! Accuracy: {acc:.4f} (precedente: {best_acc:.4f})")
             best_acc = acc
             os.makedirs(best_model_dir, exist_ok=True)
-            model.save_pretrained(best_model_dir)
-            print(f"💾 Miglior modello salvato in: {best_model_dir} con acc: {acc:.4f}")
+            model.save_pretrained(best_model_dir)  # ✅ SALVATAGGIO SOLO DEL MODELLO MIGLIORE
+            print(f"💾 Salvato in: {best_model_dir}")
+            
+            # NOTA: save_to_hf ora salva solo localmente (upload HF disabilitato)
             save_to_hf(
                 best_model_dir,
                 repo_id=(
@@ -135,8 +138,12 @@ def train():
                 )
             )
 
-    # Final embeddings
+    # Final embeddings per il modello migliore
     generate_embeddings(model, val_loader, save_path=best_model_dir)
+    
+    # ✅ SOLO IL MODELLO MIGLIORE È SALVATO
+    print(f"🏆 Training completato! Miglior modello salvato in: {best_model_dir}")
+    print(f"📊 Migliore accuracy raggiunta: {best_acc:.4f}")
 
 if __name__ == "__main__":
     train()
