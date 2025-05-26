@@ -61,8 +61,8 @@ def generate_embeddings(model, dataloader, save_path, repo_id=None):
 
     if repo_id:
         print(f"⏫ Caricamento embeddings su Hugging Face: {repo_id}")
-        save_to_hf(save_path, repo_id=repo_id)
-        print("✔️ Embeddings caricati su Hugging Face")
+        # save_to_hf(save_path, repo_id=repo_id)  # Commentato: disabilitato upload HF
+        print("✔️ Embeddings salvati localmente (upload HF disabilitato)")
 
 
 def train(resume_from=None, start_epoch=0):
@@ -173,8 +173,8 @@ def train(resume_from=None, start_epoch=0):
             ckpt_dir = os.path.join(SAVE_DIR, f"{MODEL_NAME.replace('/', '-')}-{DATASET_NAME}_ep{epoch+1}")
             os.makedirs(ckpt_dir, exist_ok=True)
             model.save_pretrained(ckpt_dir)
-            save_to_hf(ckpt_dir, repo_id=f"{MODEL_NAME.replace('/', '-')}-{DATASET_NAME}-ep{epoch+1}")
-            print(f"✔️ Checkpoint epoch {epoch+1} salvato in {ckpt_dir}")
+            # save_to_hf(ckpt_dir, repo_id=f"{MODEL_NAME.replace('/', '-')}-{DATASET_NAME}-ep{epoch+1}")  # Commentato: disabilitato upload HF
+            print(f"✔️ Checkpoint epoch {epoch+1} salvato localmente in {ckpt_dir}")
     
     # final save
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -182,8 +182,12 @@ def train(resume_from=None, start_epoch=0):
     os.makedirs(final_dir, exist_ok=True)
     model.save_pretrained(final_dir)
     torch.save(model.state_dict(), os.path.join(final_dir, "model_state.pth"))
-    save_to_hf(final_dir, repo_id=f"{MODEL_NAME.replace('/', '-')}-{DATASET_NAME}-final")
-    generate_embeddings(model, val_loader, final_dir, repo_id=f"{MODEL_NAME.replace('/', '-')}-{DATASET_NAME}-embeddings-{ts}")
+    print(f"💾 Modello finale salvato in: {final_dir}")
+    
+    # Salvataggio embedding senza upload HF
+    # generate_embeddings(model, val_loader, final_dir, repo_id=f"{MODEL_NAME.replace('/', '-')}-{DATASET_NAME}-embeddings-{ts}")  # Commentato: disabilitato upload HF
+    generate_embeddings(model, val_loader, final_dir, repo_id=None)  # Solo salvataggio locale
+    print("✔️ Training completato! Modello e embeddings salvati localmente.")
 
 
 if __name__ == '__main__':
