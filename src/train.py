@@ -84,9 +84,10 @@ def train(resume_from=None, start_epoch=0):
         peft_config = LoraConfig(
             task_type=TaskType.SEQ_CLS,
             inference_mode=False,
-            r=8,
-            lora_alpha=32,
-            target_modules=["query", "value"]
+            r=16,                              # Aumentato da 8 a 16 per maggiore capacità
+            lora_alpha=32,                     # Manteniamo il rapporto alpha/r = 2
+            lora_dropout=0.1,                  # Aggiunto dropout per regolarizzazione
+            target_modules=["query", "value", "key", "dense"]  # Più moduli per catturare più pattern
         )
         model = get_peft_model(base_model, peft_config)
 
@@ -118,6 +119,11 @@ def train(resume_from=None, start_epoch=0):
 
     scaler = torch.cuda.amp.GradScaler()
     global_step = 0
+    
+    # Early stopping per massimizzare validation accuracy
+    best_val_acc = 0.0
+    patience = 3
+    patience_counter = 0
 
     model.train()
     for epoch in range(start_epoch, EPOCHS):
@@ -162,7 +168,25 @@ def train(resume_from=None, start_epoch=0):
                 labels.extend(batch['labels'].cpu().tolist())
         acc = accuracy_score(labels, preds)
         f1 = f1_score(labels, preds)
-        print(f"🧪 Validation — Acc: {acc:.4f} | F1: {f1:.4f}\n")
+        print(f"🧪 Validation — Acc: {acc:.4f} | F1: {f1:.4f}")
+        
+        # Early stopping basato su validation accuracy
+        if acc > best_val_acc:
+            best_val_acc = acc
+            patience_counter = 0
+            print(f"🎯 Nuova migliore accuracy: {acc:.4f} - Modello salvato!")
+            # Salva il miglior modello
+            best_model_dir = os.path.join(SAVE_DIR, "best_model")
+            os.makedirs(best_model_dir, exist_ok=True)
+            model.save_pretrained(best_model_dir)
+        else:
+            patience_counter += 1
+            print(f"⏳ Patience: {patience_counter}/{patience}")
+            if patience_counter >= patience:
+                print(f"🛑 Early stopping! Migliore accuracy: {best_val_acc:.4f}")
+                break
+        
+        print()  # Linea vuota per leggibilità
         model.train()
 
         if global_step >= TOTAL_TRAIN_STEPS:

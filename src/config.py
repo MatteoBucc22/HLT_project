@@ -3,16 +3,16 @@ import torch
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-# Hyperparameters ottimizzati per QQP classification con LoRA
-TOTAL_TRAIN_STEPS = 10_000  # Ridotto per evitare overfitting
-WARMUP_STEPS = 1_000       # 10% del total_steps per warm-up graduale
-BATCH_SIZE = 32            # Batch size più piccolo per training più stabile
-LEARNING_RATE = 2e-4       # Learning rate più conservativo per LoRA
-EPOCHS = 5                 # Meno epoch per evitare overfitting
+# Hyperparameters ottimizzati per MASSIMA accuracy su QQP validation
+TOTAL_TRAIN_STEPS = 40_000  # Aumentato per più training ma con early stopping implicito
+WARMUP_STEPS = 4_000       # 10% del total_steps per warm-up più graduale
+BATCH_SIZE = 16            # Batch size ridotto per gradient updates più frequenti e precisi
+LEARNING_RATE = 3e-4       # Learning rate ottimale per LoRA fine-tuning su QQP
+EPOCHS = 5                 # Aumentato per permettere convergenza completa
 
-# AdamW parameters ottimizzati
-WEIGHT_DECAY = 0.1         # Weight decay più aggressivo per regularization
-GRAD_CLIP_NORM = 0.5       # Gradient clipping più stretto
+# AdamW parameters ottimizzati per performance
+WEIGHT_DECAY = 0.01        # Weight decay moderato per non limitare troppo l'apprendimento
+GRAD_CLIP_NORM = 1.0       # Gradient clipping standard per stabilità
 
 # Tokenization ottimizzata per QQP
 MAX_LENGTH = 256           # Lunghezza maggiore per catturare meglio le parafrasi lunghe
