@@ -11,20 +11,6 @@ def get_datasets():
     print("DATASET SPLITS:", ds.keys())
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
-    def normalize_pair(q1, q2):
-        return tuple(sorted((q1.strip().lower(), q2.strip().lower())))
-
-    train_pairs = set(
-        normalize_pair(q1, q2)
-        for q1, q2 in zip(ds["validation"]["sentence1"], ds["train"]["sentence2"])
-    )
-    test_pairs = set(
-        normalize_pair(q1, q2)
-        for q1, q2 in zip(ds["validation"]["sentence1"], ds["test"]["sentence2"])
-    )
-
-    duplicates = train_pairs & test_pairs
-    print(f"DUPLICATI TRA TRAIN E VALIDATION: {len(duplicates)}")
 
     def preprocess(examples):
         q1 = examples["sentence1"]
