@@ -17,11 +17,11 @@ def get_datasets():
 
     train_pairs = set(
         normalize_pair(q1, q2)
-        for q1, q2 in zip(ds["validation"]["question1"], ds["train"]["question2"])
+        for q1, q2 in zip(ds["train"]["question1"], ds["train"]["question2"])
     )
     test_pairs = set(
         normalize_pair(q1, q2)
-        for q1, q2 in zip(ds["validation"]["question1"], ds["test"]["question2"])
+        for q1, q2 in zip(ds["test"]["question1"], ds["test"]["question2"])
     )
 
     duplicates = train_pairs & test_pairs

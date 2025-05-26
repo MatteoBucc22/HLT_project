@@ -3,4 +3,7 @@ transformers
 datasets
 scikit-learn
 huggingface_hub
-scikit-learn
+peft
+tqdm
+joblib
+matplotlib

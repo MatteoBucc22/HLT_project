@@ -1,5 +1,7 @@
 # config.py
-DEVICE = 'cuda'
+import torch
+
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # Hyperparameters from MiniLM paper
 TOTAL_TRAIN_STEPS = 400_000
@@ -11,6 +13,9 @@ EPOCHS = 10  # approximate given step budget
 # AdamW parameters
 WEIGHT_DECAY = 0.01
 GRAD_CLIP_NORM = 1.0
+
+# Tokenization
+MAX_LENGTH = 128
 
 # Saving & dataset
 SAVE_DIR = 'outputs/'

@@ -67,6 +67,12 @@ def generate_embeddings(model, dataloader, save_path, repo_id=None):
 
 def train(resume_from=None, start_epoch=0):
     set_seed()
+    
+    # Verifico che il device sia disponibile
+    print(f"🖥️  Usando device: {DEVICE}")
+    if DEVICE == 'cuda' and not torch.cuda.is_available():
+        print("⚠️  CUDA non disponibile, switching to CPU")
+        
     dataset = get_datasets()
     base_model = get_model().to(DEVICE)
 
