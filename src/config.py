@@ -1,12 +1,12 @@
 DATASET_NAME = "mrpc"
-MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+MODEL_NAME = "sentence-transformers/all-MiniLM-L12-v2"
 
 # Tokenization / DataLoader - Ottimizzato per MRPC
 MAX_LENGTH      = 128       # Aumentato per catturare meglio le frasi lunghe
-BATCH_SIZE      = 16        # Ridotto per gradienti più stabili
+BATCH_SIZE      = 12        # Ottimizzato per MiniLM-L12
 
 # Training - Parametri ottimizzati per migliore accuracy
-LEARNING_RATE   = 1e-5      # Learning rate più basso per fine-tuning stabile
+LEARNING_RATE   = 8e-6      # Learning rate ottimizzato per MiniLM-L12
 WEIGHT_DECAY    = 0.01
 GRADIENT_CLIPPING = 1.0     # Aggiunto per stabilità
 
