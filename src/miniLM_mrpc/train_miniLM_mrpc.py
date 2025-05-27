@@ -11,9 +11,9 @@ from tqdm.auto import tqdm
 import time
 import datetime
 from sklearn.metrics import accuracy_score, f1_score
-from data_loader_miniLM_mrpc import get_datasets
-from model_miniLM_mrpc import get_model, MODEL_NAME
-from config_miniLM_mrpc import (DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR, DATASET_NAME, SEED,
+from .data_loader_miniLM_mrpc import get_datasets
+from .model_miniLM_mrpc import get_model, MODEL_NAME
+from .config_miniLM_mrpc import (DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR, DATASET_NAME, SEED,
                    WEIGHT_DECAY, GRADIENT_CLIPPING, WARMUP_RATIO, LR_SCHEDULER, PATIENCE, MIN_DELTA)
 from hf_utils import save_to_hf  # NOTA: funzione modificata per salvataggio solo locale
 

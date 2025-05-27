@@ -3,7 +3,7 @@
 import os
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 from transformers import AutoConfig, AutoModelForSequenceClassification
-from config_miniLM_mrpc import MODEL_NAME, HIDDEN_DROPOUT, ATTENTION_DROPOUT
+from .config_miniLM_mrpc import MODEL_NAME, HIDDEN_DROPOUT, ATTENTION_DROPOUT
 
 
 def get_model(hidden_dropout_prob: float = HIDDEN_DROPOUT,

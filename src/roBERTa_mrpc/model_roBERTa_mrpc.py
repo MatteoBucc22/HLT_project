@@ -2,7 +2,7 @@
 
 import torch
 from transformers import AutoConfig, AutoModelForSequenceClassification
-from config_roBERTa_mrpc import MODEL_NAME, HIDDEN_DROPOUT, DEVICE
+from .config_roBERTa_mrpc import MODEL_NAME, HIDDEN_DROPOUT, DEVICE
 
 def get_model():
     """

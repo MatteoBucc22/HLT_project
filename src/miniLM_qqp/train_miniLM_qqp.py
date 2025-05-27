@@ -13,7 +13,7 @@ from tqdm.auto import tqdm
 from sklearn.metrics import accuracy_score, f1_score
 
 from peft import get_peft_model, LoraConfig, TaskType, PeftModel
-from config_miniLM_qqp import (
+from .config_miniLM_qqp import (
     DEVICE,
     BATCH_SIZE,
     LEARNING_RATE,
@@ -26,8 +26,8 @@ from config_miniLM_qqp import (
     WEIGHT_DECAY,
     GRAD_CLIP_NORM
 )
-from model_miniLM_qqp import get_model
-from data_loader_miniLM_qqp import get_datasets
+from .model_miniLM_qqp import get_model
+from .data_loader_miniLM_qqp import get_datasets
 from hf_utils import save_to_hf
 
 # reproducibility

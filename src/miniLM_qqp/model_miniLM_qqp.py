@@ -1,7 +1,7 @@
 import os
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 from transformers import AutoModelForSequenceClassification
-from config_miniLM_qqp import MODEL_NAME, DEVICE
+from .config_miniLM_qqp import MODEL_NAME, DEVICE
 
 def get_model():
     model = AutoModelForSequenceClassification.from_pretrained(

@@ -12,9 +12,9 @@ from tqdm.auto import tqdm
 from sklearn.metrics import accuracy_score, f1_score
 
 from peft import get_peft_model, LoraConfig, TaskType, PeftModel
-from config_roBERTa_qqp import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR, DATASET_NAME
-from model_roBERTa_qqp import get_model, MODEL_NAME
-from data_loader_roBERTa_qqp import get_datasets
+from .config_roBERTa_qqp import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR, DATASET_NAME
+from .model_roBERTa_qqp import get_model, MODEL_NAME
+from ..data_loader_roBERTa_qqp import get_datasets
 from hf_utils import save_to_hf
 
 def set_seed(seed=42):

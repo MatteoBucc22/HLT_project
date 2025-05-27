@@ -1,7 +1,7 @@
 import os
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 from transformers import AutoModelForSequenceClassification
-from config_roBERTa_qqp import MODEL_NAME
+from .config_roBERTa_qqp import MODEL_NAME
 import torch
 
 def get_model():

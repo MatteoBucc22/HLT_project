@@ -10,9 +10,9 @@ from tqdm.auto import tqdm
 import time
 import datetime
 from sklearn.metrics import accuracy_score, f1_score
-from data_loader_roBERTa_mrpc import get_datasets
-from model_roBERTa_mrpc import get_model, MODEL_NAME
-from config_roBERTa_mrpc import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR, DATASET_NAME, SEED
+from .data_loader_roBERTa_mrpc import get_datasets
+from .model_roBERTa_mrpc import get_model, MODEL_NAME
+from .config_roBERTa_mrpc import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, SAVE_DIR, DATASET_NAME, SEED
 from hf_utils import save_to_hf
 
 def set_seed(seed):

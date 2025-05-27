@@ -3,7 +3,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 from datasets import load_dataset
 from transformers import AutoTokenizer
-from config_roBERTa_qqp import MODEL_NAME, MAX_LENGTH, DATASET_NAME
+from .config_roBERTa_qqp import MODEL_NAME, MAX_LENGTH, DATASET_NAME
 
 def get_datasets():
     # Carica il dataset Quora con le suddivisioni predefinite
