@@ -1,73 +1,127 @@
-
-import torch
-import torch.nn.functional as F
-from sklearn.metrics import accuracy_score, f1_score
 import os
-import io
-import requests
+import torch
+import numpy as np
+import joblib
+from datasets import load_dataset
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
+from sklearn.model_selection import train_test_split
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from peft import PeftModel
+from hf_utils import save_to_hf
 
-# URL per gli embeddings su Hugging Face
-roberta_url = (
-    "https://huggingface.co/MatteoBucc/"
-    "passphrase-identification-roberta-base-qqp-embeddings-20250515_135729/"
-    "resolve/main/validation_embeddings.pt"
-)
-minilm_url = (
-    "https://huggingface.co/MatteoBucc/"
-    "passphrase-identification-sentence-transformers-all-MiniLM-L6-v2-qqp-embeddings-20250515_141045/"
-    "resolve/main/validation_embeddings.pt"
-)
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+BATCH_SIZE = 32 
 
-# Funzione per scaricare e caricare embeddings
-def download_and_load_embedding(url):
-    response = requests.get(url)
-    response.raise_for_status()
-    buffer = io.BytesIO(response.content)
-    data = torch.load(buffer, map_location="cpu", weights_only=True)
-    return data
+# Configurazione dei modelli
+MODEL_INFOS = {
+    "roberta-qqp": {"type": "peft", "base": "roberta-base", "adapter": "MatteoBucc/passphrase-identification-roberta-base-qqp-final"},
+    "minilm-qqp": {"type": "peft", "base": "sentence-transformers/all-MiniLM-L6-v2", "adapter": "MatteoBucc/sentence-transformers-all-MiniLM-L6-v2-qqp-adapter-epoch-4"},
+    "roberta-mrpc": {"type": "full", "base": "roberta-base", "model_repo": "MatteoBucc/passphrase-identification-roberta-base-mrpc-best"},
+    "minilm-mrpc": {"type": "full", "base": "sentence-transformers/all-MiniLM-L6-v2", "model_repo": "MatteoBucc/passphrase-identification-sentence-transformers-all-MiniLM-L6-v2-mrpc-best"}
+}
 
-print("Downloading Roberta embeddings...")
-roberta_data = download_and_load_embedding(roberta_url)
-print("Downloading MiniLM embeddings...")
-minilm_data = download_and_load_embedding(minilm_url)
+ARTIFACT_DIR = "ensemble_artifacts"
+os.makedirs(ARTIFACT_DIR, exist_ok=True)
 
-# Verifica consistenza
-assert len(roberta_data['labels']) == len(minilm_data['labels']), (
-    "I dataset devono avere lo stesso numero di esempi"
-)
+def predict_probs(info, pairs):
+    tokenizer = AutoTokenizer.from_pretrained(info.get('base'))
+    if info['type'] == 'peft':
+        base_model = AutoModelForSequenceClassification.from_pretrained(info['base']).to(DEVICE)
+        model = PeftModel.from_pretrained(base_model, info['adapter']).eval()
+    else:
+        model = AutoModelForSequenceClassification.from_pretrained(info['model_repo']).to(DEVICE).eval()
 
-# Estrai embeddings e labels
-emb1 = F.normalize(roberta_data["embeddings"], dim=1)   # [N, 768]
-emb2 = F.normalize(minilm_data["embeddings"], dim=1)     # [N, 384]
-labels = roberta_data["labels"]                         # [N]
+    all_probs = []
+    for i in range(0, len(pairs), BATCH_SIZE):
+        batch = pairs[i: i + BATCH_SIZE]
+        inputs = tokenizer([p[0] for p in batch], [p[1] for p in batch],
+                           padding=True, truncation=True, return_tensors="pt").to(DEVICE)
+        with torch.no_grad():
+            logits = model(**inputs).logits
+            probs = torch.softmax(logits, dim=-1).cpu().numpy()
+        all_probs.append(probs)
+        torch.cuda.empty_cache()
+    return np.vstack(all_probs)
 
-def compute_centroids(embeddings, labels):
-    pos_centroid = embeddings[labels == 1].mean(dim=0)
-    neg_centroid = embeddings[labels == 0].mean(dim=0)
-    return pos_centroid, neg_centroid
+def compute_dynamic_weights(probs_list, true_labels):
+    f1s = []
+    for probs in probs_list:
+        preds = np.argmax(probs, axis=1)
+        f1s.append(f1_score(true_labels, preds))
+    f1s = np.array(f1s)
+    return f1s / f1s.sum()
 
-# Centroidi per ogni spazio di embedding
-pos1, neg1 = compute_centroids(emb1, labels)
-pos2, neg2 = compute_centroids(emb2, labels)
+def evaluate_ensemble_and_stacking(pairs, labels, split_name=""):
+    pairs_train, pairs_val, y_train, y_val = train_test_split(
+        pairs, labels, test_size=0.3, random_state=42)
 
-# Calcola similarità e predizioni combinate
-# Pesi, se vuoi dare maggiore importanza a uno dei modelli
-w1 = 0.8
-w2 = 0.2
+    # Predizioni
+    probs_train = [predict_probs(info, pairs_train) for info in MODEL_INFOS.values()]
+    probs_val = [predict_probs(info, pairs_val) for info in MODEL_INFOS.values()]
+    weights = compute_dynamic_weights(probs_val, y_val)
 
-sims_pos = w1 * F.cosine_similarity(emb1, pos1.unsqueeze(0)) \
-         + w2 * F.cosine_similarity(emb2, pos2.unsqueeze(0))
-sims_neg = w1 * F.cosine_similarity(emb1, neg1.unsqueeze(0)) \
-         + w2 * F.cosine_similarity(emb2, neg2.unsqueeze(0))
+    # Salvataggio pesi dinamici
+    np.save(os.path.join(ARTIFACT_DIR, f"dynamic_weights_{split_name}.npy"), weights)
 
-preds = (sims_pos > sims_neg).long().tolist()
-true_labels = labels.tolist()
+    # Stacking metaclassificatore
+    X_stack = np.hstack(probs_train)
+    meta_clf = LogisticRegression(max_iter=1000)
+    meta_clf.fit(X_stack, y_train)
+    joblib.dump(meta_clf, os.path.join(ARTIFACT_DIR, f"stacking_meta_clf_{split_name}.joblib"))
 
-# Calcolo metriche
-tacc = accuracy_score(true_labels, preds)
-tf1 = f1_score(true_labels, preds)
+    # Predizioni su tutto il set
+    all_pairs = pairs_train + pairs_val
+    all_labels = np.concatenate([y_train, y_val])
+    all_probs = [predict_probs(info, all_pairs) for info in MODEL_INFOS.values()]
 
-print("\n🧪 Ensemble Roberta + MiniLM su QQP usando similarità centroidi")
-print(f"Accuracy: {tacc:.4f}")
-print(f"F1 Score: {tf1:.4f}")
+    # Ensemble dinamico
+    weighted_probs = sum(w * p for w, p in zip(weights, all_probs))
+    preds_ens = np.argmax(weighted_probs, axis=1)
 
+    # Stacking
+    X_meta = np.hstack(all_probs)
+    preds_stack = meta_clf.predict(X_meta)
+
+    # Matrici di confusione
+    cm_ens = confusion_matrix(all_labels, preds_ens)
+    cm_stack = confusion_matrix(all_labels, preds_stack)
+    np.save(os.path.join(ARTIFACT_DIR, f"cm_ensemble_{split_name}.npy"), cm_ens)
+    np.save(os.path.join(ARTIFACT_DIR, f"cm_stacking_{split_name}.npy"), cm_stack)
+
+    return {
+        'dynamic': {'accuracy': accuracy_score(all_labels, preds_ens), 'f1': f1_score(all_labels, preds_ens), 'confusion_matrix': cm_ens},
+        'stacking': {'accuracy': accuracy_score(all_labels, preds_stack), 'f1': f1_score(all_labels, preds_stack), 'confusion_matrix': cm_stack}
+    }
+
+if __name__ == '__main__':
+    results = {}
+    # QQP
+    qqp = load_dataset('glue', 'qqp', split='validation')
+    qqp_pairs = [(ex['question1'], ex['question2']) for ex in qqp]
+    qqp_labels = np.array(qqp['label'])
+    results['QQP'] = evaluate_ensemble_and_stacking(qqp_pairs, qqp_labels, split_name="qqp")
+
+    # MRPC
+    mrpc = load_dataset('glue', 'mrpc', split='validation')
+    mrpc_pairs = [(ex['sentence1'], ex['sentence2']) for ex in mrpc]
+    mrpc_labels = np.array(mrpc['label'])
+    results['MRPC'] = evaluate_ensemble_and_stacking(mrpc_pairs, mrpc_labels, split_name="mrpc")
+
+    # Mixed
+    mixed_pairs = qqp_pairs + mrpc_pairs
+    mixed_labels = np.concatenate([qqp_labels, mrpc_labels])
+    results['Mixed'] = evaluate_ensemble_and_stacking(mixed_pairs, mixed_labels, split_name="mixed")
+
+    # Stampa risultati e matrici
+    for split, res in results.items():
+        dyn = res['dynamic']
+        stk = res['stacking']
+        print(f"===== {split} =====")
+        print(f"Ensemble dynamic weights - Accuracy: {dyn['accuracy']:.4f}, F1: {dyn['f1']:.4f}")
+        print(f"Confusion Matrix (Ensemble):\n{dyn['confusion_matrix']}\n")
+        print(f"Stacking metaclassificatore - Accuracy: {stk['accuracy']:.4f}, F1: {stk['f1']:.4f}")
+        print(f"Confusion Matrix (Stacking):\n{stk['confusion_matrix']}\n")
+
+    # Upload su Hugging Face
+    save_to_hf(ARTIFACT_DIR, repo_id="MatteoBucc/ensemble-artifacts", commit_msg="Added confusion matrices for ensemble and stacking")

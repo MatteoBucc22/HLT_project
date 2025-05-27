@@ -6,3 +6,4 @@ LEARNING_RATE = 3e-5
 EPOCHS = 5
 DEVICE = "cuda"
 SAVE_DIR = "outputs/"
+SEED = 42
