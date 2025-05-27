@@ -6,8 +6,6 @@ from miniLM_mrpc.train_miniLM_mrpc import train as train_minilm_mrpc
 
 
 def main():
-    print("Inizio training roBERTa su QQP...")
-    train_roberta_qqp()
 
     print("Inizio training roBERTa su MRPC...")
     train_roberta_mrpc()
@@ -17,6 +15,9 @@ def main():
 
     print("Inizio training MiniLM su MRPC...")
     train_minilm_mrpc()
+
+    print("Inizio training roBERTa su QQP...")
+    train_roberta_qqp()
 
     # print("Esecuzione ensemble...")
     # ensemble()
