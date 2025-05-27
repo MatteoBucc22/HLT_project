@@ -14,12 +14,30 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 BATCH_SIZE = 32 
 
 # Configurazione dei modelli
+# Configurazione aggiornata dei modelli locali
 MODEL_INFOS = {
-    "roberta-qqp": {"type": "peft", "base": "roberta-base", "adapter": "MatteoBucc/passphrase-identification-roberta-base-qqp-final"},
-    "minilm-qqp": {"type": "peft", "base": "sentence-transformers/all-MiniLM-L6-v2", "adapter": "MatteoBucc/sentence-transformers-all-MiniLM-L6-v2-qqp-adapter-epoch-4"},
-    "roberta-mrpc": {"type": "full", "base": "roberta-base", "model_repo": "MatteoBucc/passphrase-identification-roberta-base-mrpc-best"},
-    "minilm-mrpc": {"type": "full", "base": "sentence-transformers/all-MiniLM-L6-v2", "model_repo": "MatteoBucc/passphrase-identification-sentence-transformers-all-MiniLM-L6-v2-mrpc-best"}
+    "roberta-qqp": {
+        "type": "peft",
+        "base": "roberta-base",
+        "adapter": "/kaggle/working/HLT_project/outputs/roberta-base-qqp_lora_adapter_20250527_122916"
+    },
+    "minilm-qqp": {
+        "type": "peft",
+        "base": "sentence-transformers/all-MiniLM-L6-v2",
+        "adapter": "/kaggle/working/HLT_project/outputs/sentence-transformers-all-MiniLM-L6-v2-qqp_final_20250527_110735"
+    },
+    "roberta-mrpc": {
+        "type": "full",
+        "base": "roberta-base",
+        "model_repo": "/kaggle/working/HLT_project/outputs/roberta-base-mrpc-best"
+    },
+    "minilm-mrpc": {
+        "type": "full",
+        "base": "sentence-transformers/all-MiniLM-L12-v2",
+        "model_repo": "/kaggle/working/HLT_project/outputs/sentence-transformers-all-MiniLM-L12-v2-mrpc-best"
+    }
 }
+
 
 ARTIFACT_DIR = "ensemble_artifacts"
 os.makedirs(ARTIFACT_DIR, exist_ok=True)
