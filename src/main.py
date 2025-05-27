@@ -3,7 +3,7 @@ from roBERTa_mrpc.train_roBERTa_mrpc import train as train_roberta_mrpc
 from miniLM_qqp.train_miniLM_qqp import train as train_minilm_qqp
 from miniLM_mrpc.train_miniLM_mrpc import train as train_minilm_mrpc
 
-from ensemble import ensemble
+
 
 def main():
     print("Inizio training roBERTa su QQP...")
