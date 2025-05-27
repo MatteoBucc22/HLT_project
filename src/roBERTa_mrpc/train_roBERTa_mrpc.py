@@ -8,7 +8,6 @@ from torch.optim import AdamW
 from transformers import default_data_collator, get_scheduler
 from tqdm.auto import tqdm
 import time
-import datetime
 from sklearn.metrics import accuracy_score, f1_score
 from .data_loader_roBERTa_mrpc import get_datasets
 from .model_roBERTa_mrpc import get_model, MODEL_NAME
@@ -23,26 +22,6 @@ def set_seed(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-def generate_embeddings(model, dataloader, save_path):
-    model.eval()
-    all_embeddings, all_labels = [], []
-
-    with torch.no_grad():
-        for batch in tqdm(dataloader, desc="🔍 Generating Embeddings"):
-            labels = batch["labels"]
-            batch = {k: v.to(DEVICE) for k, v in batch.items()}
-            outputs = model(**batch, output_hidden_states=True, return_dict=True)
-            cls_embeddings = outputs.hidden_states[-1][:, 0, :]
-            all_embeddings.append(cls_embeddings.cpu())
-            all_labels.extend(labels)
-
-    all_embeddings = torch.cat(all_embeddings)
-    all_labels = torch.tensor(all_labels)
-
-    os.makedirs(save_path, exist_ok=True)
-    torch.save({"embeddings": all_embeddings, "labels": all_labels},
-               os.path.join(save_path, "validation_embeddings.pt"))
-    print(f"💾 Embedding di validazione salvati in: {save_path}/validation_embeddings.pt")
 
 def train():
     set_seed(SEED)
@@ -119,13 +98,13 @@ def train():
 
         acc = accuracy_score(all_labels, all_preds)
         f1 = f1_score(all_labels, all_preds)
-        print(f"🧪 Validation — Accuracy: {acc:.4f} | F1 Score: {f1:.4f}\n")
+        print(f"Validation — Accuracy: {acc:.4f} | F1 Score: {f1:.4f}\n")
 
         if acc > best_acc:
             best_acc = acc
             os.makedirs(best_model_dir, exist_ok=True)
             model.save_pretrained(best_model_dir)
-            print(f"💾 Miglior modello salvato in: {best_model_dir} con acc: {acc:.4f}")
+            print(f"Miglior modello salvato in: {best_model_dir} con acc: {acc:.4f}")
             save_to_hf(
                 best_model_dir,
                 repo_id=(
@@ -134,8 +113,6 @@ def train():
                 )
             )
 
-    # Final embeddings
-    generate_embeddings(model, val_loader, save_path=best_model_dir)
 
 if __name__ == "__main__":
     train()

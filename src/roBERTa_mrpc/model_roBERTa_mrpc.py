@@ -1,13 +1,7 @@
-# model.py
-
-import torch
 from transformers import AutoConfig, AutoModelForSequenceClassification
 from .config_roBERTa_mrpc import MODEL_NAME, HIDDEN_DROPOUT, DEVICE
 
 def get_model():
-    """
-    Restituisce un RobertaForSequenceClassification con dropout regolato.
-    """
     cfg = AutoConfig.from_pretrained(
         MODEL_NAME,
         num_labels=2,

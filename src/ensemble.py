@@ -13,8 +13,7 @@ from hf_utils import save_to_hf
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 BATCH_SIZE = 32 
 
-# Configurazione dei modelli
-# Configurazione aggiornata dei modelli locali
+#models paths for kaggle, you can also use the hugging face models paths
 MODEL_INFOS = {
     "roberta-qqp": {
         "type": "peft",
@@ -74,34 +73,27 @@ def evaluate_ensemble_and_stacking(pairs, labels, split_name=""):
     pairs_train, pairs_val, y_train, y_val = train_test_split(
         pairs, labels, test_size=0.3, random_state=42)
 
-    # Predizioni
     probs_train = [predict_probs(info, pairs_train) for info in MODEL_INFOS.values()]
     probs_val = [predict_probs(info, pairs_val) for info in MODEL_INFOS.values()]
     weights = compute_dynamic_weights(probs_val, y_val)
 
-    # Salvataggio pesi dinamici
     np.save(os.path.join(ARTIFACT_DIR, f"dynamic_weights_{split_name}.npy"), weights)
 
-    # Stacking metaclassificatore
     X_stack = np.hstack(probs_train)
     meta_clf = LogisticRegression(max_iter=1000)
     meta_clf.fit(X_stack, y_train)
     joblib.dump(meta_clf, os.path.join(ARTIFACT_DIR, f"stacking_meta_clf_{split_name}.joblib"))
 
-    # Predizioni su tutto il set
     all_pairs = pairs_train + pairs_val
     all_labels = np.concatenate([y_train, y_val])
     all_probs = [predict_probs(info, all_pairs) for info in MODEL_INFOS.values()]
 
-    # Ensemble dinamico
     weighted_probs = sum(w * p for w, p in zip(weights, all_probs))
     preds_ens = np.argmax(weighted_probs, axis=1)
 
-    # Stacking
     X_meta = np.hstack(all_probs)
     preds_stack = meta_clf.predict(X_meta)
 
-    # Matrici di confusione
     cm_ens = confusion_matrix(all_labels, preds_ens)
     cm_stack = confusion_matrix(all_labels, preds_stack)
     np.save(os.path.join(ARTIFACT_DIR, f"cm_ensemble_{split_name}.npy"), cm_ens)
@@ -114,6 +106,7 @@ def evaluate_ensemble_and_stacking(pairs, labels, split_name=""):
 
 if __name__ == '__main__':
     results = {}
+
     # QQP
     qqp = load_dataset('glue', 'qqp', split='validation')
     qqp_pairs = [(ex['question1'], ex['question2']) for ex in qqp]
@@ -131,7 +124,6 @@ if __name__ == '__main__':
     mixed_labels = np.concatenate([qqp_labels, mrpc_labels])
     results['Mixed'] = evaluate_ensemble_and_stacking(mixed_pairs, mixed_labels, split_name="mixed")
 
-    # Stampa risultati e matrici
     for split, res in results.items():
         dyn = res['dynamic']
         stk = res['stacking']
@@ -141,5 +133,4 @@ if __name__ == '__main__':
         print(f"Stacking metaclassificatore - Accuracy: {stk['accuracy']:.4f}, F1: {stk['f1']:.4f}")
         print(f"Confusion Matrix (Stacking):\n{stk['confusion_matrix']}\n")
 
-    # Upload su Hugging Face
     save_to_hf(ARTIFACT_DIR, repo_id="MatteoBucc/ensemble-artifacts", commit_msg="Added confusion matrices for ensemble and stacking")

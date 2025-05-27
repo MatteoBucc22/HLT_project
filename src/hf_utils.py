@@ -5,7 +5,7 @@ from huggingface_hub import login, create_repo, upload_folder
 def hf_login():
     token = os.environ.get("HUGGINGFACE_HUB_TOKEN")
     if not token:
-        raise ValueError("❌ HUGGINGFACE_HUB_TOKEN not found")
+        raise ValueError("HUGGINGFACE_HUB_TOKEN not found")
     login(token)
 
 def save_to_hf(local_dir, repo_id="MatteoBucc/passphrase-identification", commit_msg="Upload from Colab"):
@@ -13,9 +13,9 @@ def save_to_hf(local_dir, repo_id="MatteoBucc/passphrase-identification", commit
     try:
         create_repo(repo_id, exist_ok=True)
     except Exception as e:
-        print("⚠️ Repo already exists or error:", e)
+        print("Repo already exists or error:", e)
 
-    print("⏳ Uploading to Hugging Face Hub…")
+    print("Uploading to Hugging Face Hub…")
     upload_folder(
         folder_path=local_dir,
         repo_id=repo_id,
@@ -23,4 +23,4 @@ def save_to_hf(local_dir, repo_id="MatteoBucc/passphrase-identification", commit
         ignore_patterns=["*.pth"],
         repo_type="model"
     )
-    print(f"✅ Uploaded to https://huggingface.co/{repo_id}")
+    print(f"Uploaded to https://huggingface.co/{repo_id}")

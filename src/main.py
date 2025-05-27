@@ -19,8 +19,5 @@ def main():
     print("Inizio training roBERTa su QQP...")
     train_roberta_qqp()
 
-    # print("Esecuzione ensemble...")
-    # ensemble()
-
 if __name__ == "__main__":
     main()

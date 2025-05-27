@@ -31,7 +31,7 @@ def generate_embeddings(model, dataloader, save_path, repo_id=None):
     all_labels = []
 
     with torch.no_grad():
-        for batch in tqdm(dataloader, desc="🔍 Generating Embeddings"):
+        for batch in tqdm(dataloader, desc="Generating Embeddings"):
             labels = batch["labels"]
             batch = {k: v.to(DEVICE) for k, v in batch.items()}
             outputs = model.base_model(**batch, output_hidden_states=True, return_dict=True)
@@ -44,10 +44,10 @@ def generate_embeddings(model, dataloader, save_path, repo_id=None):
     os.makedirs(save_path, exist_ok=True)
     file_path = os.path.join(save_path, "validation_embeddings.pt")
     torch.save({"embeddings": all_embeddings, "labels": all_labels}, file_path)
-    print(f"💾 Embedding di validazione salvati in: {file_path}")
+    print(f"Embedding di validazione salvati in: {file_path}")
 
     if repo_id:
-        print(f"⏫ Caricamento embeddings su Hugging Face: {repo_id}")
+        print(f"Caricamento embeddings su Hugging Face: {repo_id}")
         save_to_hf(save_path, repo_id=repo_id)
         print("✔️ Embeddings caricati su Hugging Face")
 
@@ -57,7 +57,7 @@ def train(resume_from=None, start_epoch=0):
     base_model = get_model().to(DEVICE)
 
     if resume_from and os.path.isdir(resume_from):
-        print(f"📦 Caricamento modello da checkpoint: {resume_from}")
+        print(f"Caricamento modello da checkpoint: {resume_from}")
         model = PeftModel.from_pretrained(base_model, resume_from)
     else:
         peft_config = LoraConfig(
@@ -138,13 +138,13 @@ def train(resume_from=None, start_epoch=0):
 
         acc = accuracy_score(all_labels, all_preds)
         f1 = f1_score(all_labels, all_preds)
-        print(f"🧪 Validation — Accuracy: {acc:.4f} | F1 Score: {f1:.4f}\n")
+        print(f"Validation — Accuracy: {acc:.4f} | F1 Score: {f1:.4f}\n")
 
         if (epoch + 1) % 2 == 0:
             adapter_dir_epoch = os.path.join(SAVE_DIR, f"{MODEL_NAME.replace('/', '-')}-{DATASET_NAME}_epoch_{epoch+1}")
             os.makedirs(adapter_dir_epoch, exist_ok=True)
             model.save_pretrained(adapter_dir_epoch)
-            print(f"✔️  LoRA adapter (epoch {epoch+1}) salvato in: {adapter_dir_epoch}")
+            print(f"LoRA adapter (epoch {epoch+1}) salvato in: {adapter_dir_epoch}")
             save_to_hf(adapter_dir_epoch, repo_id=f"MatteoBucc/passphrase-identification-{MODEL_NAME.replace('/', '-')}-{DATASET_NAME}-epoch-{epoch+1}")
 
     os.makedirs(SAVE_DIR, exist_ok=True)
