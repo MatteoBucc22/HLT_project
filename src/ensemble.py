@@ -51,7 +51,7 @@ def plot_and_save_cm(cm, title, filename):
     plt.xlabel('Predicted label')
     plt.ylabel('True label')
     thresh = cm.max() / 2
-n    for i in range(cm.shape[0]):
+    for i in range(cm.shape[0]):
         for j in range(cm.shape[1]):
             plt.text(j, i, int(cm[i, j]),
                      ha='center', va='center',
